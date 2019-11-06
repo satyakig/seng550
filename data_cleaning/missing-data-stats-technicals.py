@@ -67,11 +67,11 @@ all_cols = '{} IS NULL'.format(technicals.columns[0])
 for key in technicals.columns:
     if key != technicals.columns[0]:
         all_cols = all_cols + (' OR {} IS NULL'.format(key))
-results = spark.sql("SELECT COUNT(*) as count FROM technicals WHERE {} AND Formatted_Date >= cast('{}-01-01' as date) AND Formatted_Date <= cast('{}-12-31' as date)".format(all_cols, 1989, 1999))
+results = spark.sql("SELECT COUNT(*) as count FROM technicals WHERE ({}) AND Formatted_Date >= cast('{}-01-01' as date) AND Formatted_Date <= cast('{}-12-31' as date)".format(all_cols, 1989, 1999))
 count = results.first()['count']
 print('One or more cols:  {}, {:.5f}% missing'.format(count, float(count) / float(total.count()) * 100))
 
-results = spark.sql("SELECT COUNT(*) as count FROM technicals WHERE Date IS NULL OR Formatted_Date IS NULL OR Volume IS NULL OR Price IS NULL AND Formatted_Date >= cast('{}-01-01' as date) AND Formatted_Date <= cast('{}-12-31' as date)".format(1989, 1999))
+results = spark.sql("SELECT COUNT(*) as count FROM technicals WHERE (Date IS NULL OR Formatted_Date IS NULL OR Volume IS NULL OR Price IS NULL) AND Formatted_Date >= cast('{}-01-01' as date) AND Formatted_Date <= cast('{}-12-31' as date)".format(1989, 1999))
 count = results.first()['count']
 print('Date, Volume or Price is missing:  {}, {:.5f}% missing'.format(count, float(count) / float(total.count()) * 100))
 
@@ -89,11 +89,11 @@ all_cols = '{} IS NULL'.format(technicals.columns[0])
 for key in technicals.columns:
     if key != technicals.columns[0]:
         all_cols = all_cols + (' OR {} IS NULL'.format(key))
-results = spark.sql("SELECT COUNT(*) as count FROM technicals WHERE {} AND Formatted_Date >= cast('{}-01-01' as date) AND Formatted_Date <= cast('{}-12-31' as date)".format(all_cols, 2000, 2004))
+results = spark.sql("SELECT COUNT(*) as count FROM technicals WHERE ({}) AND Formatted_Date >= cast('{}-01-01' as date) AND Formatted_Date <= cast('{}-12-31' as date)".format(all_cols, 2000, 2004))
 count = results.first()['count']
 print('One or more cols:  {}, {:.5f}% missing'.format(count, float(count) / float(total.count()) * 100))
 
-results = spark.sql("SELECT COUNT(*) as count FROM technicals WHERE Date IS NULL OR Formatted_Date IS NULL OR Volume IS NULL OR Price IS NULL AND Formatted_Date >= cast('{}-01-01' as date) AND Formatted_Date <= cast('{}-12-31' as date)".format(2000, 2004))
+results = spark.sql("SELECT COUNT(*) as count FROM technicals WHERE (Date IS NULL OR Formatted_Date IS NULL OR Volume IS NULL OR Price IS NULL) AND Formatted_Date >= cast('{}-01-01' as date) AND Formatted_Date <= cast('{}-12-31' as date)".format(2000, 2004))
 count = results.first()['count']
 print('Date, Volume or Price is missing:  {}, {:.5f}% missing'.format(count, float(count) / float(total.count()) * 100))
 
@@ -111,11 +111,11 @@ all_cols = '{} IS NULL'.format(technicals.columns[0])
 for key in technicals.columns:
     if key != technicals.columns[0]:
         all_cols = all_cols + (' OR {} IS NULL'.format(key))
-results = spark.sql("SELECT COUNT(*) as count FROM technicals WHERE {} AND Formatted_Date >= cast('{}-01-01' as date) AND Formatted_Date <= cast('{}-12-31' as date)".format(all_cols, 2005, 2009))
+results = spark.sql("SELECT COUNT(*) as count FROM technicals WHERE ({}) AND Formatted_Date >= cast('{}-01-01' as date) AND Formatted_Date <= cast('{}-12-31' as date)".format(all_cols, 2005, 2009))
 count = results.first()['count']
 print('One or more cols:  {}, {:.5f}% missing'.format(count, float(count) / float(total.count()) * 100))
 
-results = spark.sql("SELECT COUNT(*) as count FROM technicals WHERE Date IS NULL OR Formatted_Date IS NULL OR Volume IS NULL OR Price IS NULL AND Formatted_Date >= cast('{}-01-01' as date) AND Formatted_Date <= cast('{}-12-31' as date)".format(2005, 2009))
+results = spark.sql("SELECT COUNT(*) as count FROM technicals WHERE (Date IS NULL OR Formatted_Date IS NULL OR Volume IS NULL OR Price IS NULL) AND Formatted_Date >= cast('{}-01-01' as date) AND Formatted_Date <= cast('{}-12-31' as date)".format(2005, 2009))
 count = results.first()['count']
 print('Date, Volume or Price is missing:  {}, {:.5f}% missing'.format(count, float(count) / float(total.count()) * 100))
 
@@ -133,11 +133,11 @@ all_cols = '{} IS NULL'.format(technicals.columns[0])
 for key in technicals.columns:
     if key != technicals.columns[0]:
         all_cols = all_cols + (' OR {} IS NULL'.format(key))
-results = spark.sql("SELECT COUNT(*) as count FROM technicals WHERE {} AND Formatted_Date >= cast('{}-01-01' as date) AND Formatted_Date <= cast('{}-12-31' as date)".format(all_cols, 2010, 2014))
+results = spark.sql("SELECT COUNT(*) as count FROM technicals WHERE ({}) AND Formatted_Date >= cast('{}-01-01' as date) AND Formatted_Date <= cast('{}-12-31' as date)".format(all_cols, 2010, 2014))
 count = results.first()['count']
 print('One or more cols:  {}, {:.5f}% missing'.format(count, float(count) / float(total.count()) * 100))
 
-results = spark.sql("SELECT COUNT(*) as count FROM technicals WHERE Date IS NULL OR Formatted_Date IS NULL OR Volume IS NULL OR Price IS NULL AND Formatted_Date >= cast('{}-01-01' as date) AND Formatted_Date <= cast('{}-12-31' as date)".format(2010, 2014))
+results = spark.sql("SELECT COUNT(*) as count FROM technicals WHERE (Date IS NULL OR Formatted_Date IS NULL OR Volume IS NULL OR Price IS NULL) AND Formatted_Date >= cast('{}-01-01' as date) AND Formatted_Date <= cast('{}-12-31' as date)".format(2010, 2014))
 count = results.first()['count']
 print('Date, Volume or Price is missing:  {}, {:.5f}% missing'.format(count, float(count) / float(total.count()) * 100))
 
@@ -155,10 +155,10 @@ all_cols = '{} IS NULL'.format(technicals.columns[0])
 for key in technicals.columns:
     if key != technicals.columns[0]:
         all_cols = all_cols + (' OR {} IS NULL'.format(key))
-results = spark.sql("SELECT COUNT(*) as count FROM technicals WHERE {} AND Formatted_Date >= cast('{}-01-01' as date) AND Formatted_Date <= cast('{}-12-31' as date)".format(all_cols, 2015, 2019))
+results = spark.sql("SELECT COUNT(*) as count FROM technicals WHERE ({}) AND Formatted_Date >= cast('{}-01-01' as date) AND Formatted_Date <= cast('{}-12-31' as date)".format(all_cols, 2015, 2019))
 count = results.first()['count']
 print('One or more cols:  {}, {:.5f}% missing'.format(count, float(count) / float(total.count()) * 100))
 
-results = spark.sql("SELECT COUNT(*) as count FROM technicals WHERE Date IS NULL OR Formatted_Date IS NULL OR Volume IS NULL OR Price IS NULL AND Formatted_Date >= cast('{}-01-01' as date) AND Formatted_Date <= cast('{}-12-31' as date)".format(2015, 2019))
+results = spark.sql("SELECT COUNT(*) as count FROM technicals WHERE (Date IS NULL OR Formatted_Date IS NULL OR Volume IS NULL OR Price IS NULL) AND Formatted_Date >= cast('{}-01-01' as date) AND Formatted_Date <= cast('{}-12-31' as date)".format(2015, 2019))
 count = results.first()['count']
 print('Date, Volume or Price is missing:  {}, {:.5f}% missing'.format(count, float(count) / float(total.count()) * 100))
