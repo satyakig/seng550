@@ -204,14 +204,12 @@ joined_df.printSchema()
 joined_df.createOrReplaceTempView('joined')
 print('Saving joined table to BigQuery')
 joined_df.write.format('bigquery').option('table', 'seng-550.seng_550_data.technicals_fundamentals_cleaned').mode('overwrite').save()
-joined_tables = {
-    'joined': {
-        'name': 'joined',
-        'df': joined_df,
-        'or_cols': [],
-        'not_required_cols': [],
-        'non_null_cols': [],
-    },
+joined_table = {
+    'name': 'joined',
+    'df': joined_df,
+    'or_cols': [],
+    'not_required_cols': [],
+    'non_null_cols': [],
 }
 
-compute_stats(joined_tables)
+compute_stats(joined_table)
