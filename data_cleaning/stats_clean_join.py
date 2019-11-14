@@ -26,9 +26,10 @@ def transform_technicals(frame):
 
 
 # Get quarter from a timestamp/date object
-def get_quarter(dt):
+def get_quarter_technical(dt):
     month = dt.month
-    if 1 <= month <= 3:
+
+    if 1 < month <= 3:
         return 1
     elif 4 <= month <= 6:
         return 2
@@ -36,6 +37,31 @@ def get_quarter(dt):
         return 3
     else:
         return 4
+
+
+# Get quarter and year from a timestamp/date object for fundamentals
+# Increment the quarter and year where applicable
+# This function needs to be updated, because there are still some duplicates in fundamentals
+# If Date of the fundamentals report:
+#       March - May = Q2, same year
+#       June - Aug = Q3, same year
+#       September - November = Q4, same year
+#       December = Q1, Next year
+#       Jan, Feb = Q1, same year
+def get_quarter_year_fundamental(dt):
+    month = dt.month
+
+    if 3 <= month <= 5:
+        return 2, dt.year
+    elif 6 <= month <= 8:
+        return 3, dt.year
+    elif 9 <= month <= 11:
+        return 4, dt.year
+    else:
+        if month == 12:
+            return 1, dt.year + 1
+        else:
+            return 1, dt.year
 
 
 TECHNICALS = 'technicals'
@@ -48,93 +74,108 @@ bucket = spark.sparkContext._jsc.hadoopConfiguration().get('fs.gs.system.bucket'
 spark.conf.set('temporaryGcsBucket', bucket)
 
 # Read the technicals table
-technicals = spark.read.format('bigquery').option('table', 'seng-550.seng_550_data.technicals_raw').load().cache()
-technicals.createOrReplaceTempView(TECHNICALS)
-technicals = transform_technicals(technicals)
+technicals_df = spark.read.format('bigquery').option('table', 'seng-550.seng_550_data.technicals_raw').load().cache()
+technicals_df.createOrReplaceTempView(TECHNICALS)
+technicals_df = transform_technicals(technicals_df)
 
 # Read the fundamentals table
-fundamentals = spark.read.format('bigquery').option('table', 'seng-550.seng_550_data.fundamentals_raw').load().cache()
-fundamentals.createOrReplaceTempView(FUNDAMENTALS)
+fundamentals_df = spark.read.format('bigquery').option('table', 'seng-550.seng_550_data.fundamentals_raw').load().cache()
+fundamentals_df.createOrReplaceTempView(FUNDAMENTALS)
 
 # Dict that contains some values for each table used during computation
 # 'df': Stores the DataFrame for the table
 # 'or_cols': These cols will be used to compute the 'one or more cols' missing stats
 # 'not_required_cols':  Cols that are useless and won't be used
-# 'non_null_cols': Cols that cannot be null for our project (NEEDS at least 2 cols, or the query has to be modified)
+# 'non_null_cols': Cols that cannot be null for our project
 tables = {
     TECHNICALS: {
-        'df': technicals,
+        'name': TECHNICALS,
+        'df': technicals_df,
         'or_cols': ['Date', 'Instrument', 'Price_Close', 'Volume'],
         'not_required_cols': ['int64_field_0'],
         'non_null_cols': ['Date', 'Instrument', 'Price_Close', 'Volume'],
     },
     FUNDAMENTALS: {
-        'df': fundamentals,
+        'name': FUNDAMENTALS,
+        'df': fundamentals_df,
         'or_cols': ['Date', 'Instrument', 'Total_Debt', 'Total_Revenue', 'Total_Current_Assets', 'Total_Current_Liabilities'],
         'not_required_cols': [],
         'non_null_cols': ['Date', 'Instrument'],
     }
 }
 
-# Find the missing stats for each table
-print('\nComputing table stats...')
-for table in tables:
-    df = tables[table]['df']
-    or_cols = tables[table]['or_cols']
+
+# Find the missing stats for a table
+def compute_stats(table_data):
+    table_name = table_data['name']
+    df = table_data['df']
+    or_cols = table_data['or_cols']
+
     cols = df.columns
     total = df.count()
 
-    print('\n{}'.format(table.upper()))
+    print('\n{}'.format(table_name.upper()))
     df.printSchema()
     print('Total rows: {}'.format(total))
     print('Missing stats:')
 
     missing_counts = dict()
     for key in cols:
-        count = spark.sql('SELECT COUNT(*) as count FROM {} WHERE {} IS NULL'.format(table, key)).first()['count']
+        count = spark.sql('SELECT COUNT(*) as count FROM {} WHERE {} IS NULL'.format(table_name, key)).first()['count']
         missing_counts[key] = [count, '{:.4f}%'.format(float(count) / float(total) * 100)]
     print(dumps(missing_counts, indent=4))
 
-    all_query = 'SELECT COUNT(*) as count FROM {} WHERE {}'.format(table, ' IS NULL OR '.join(cols) + ' IS NULL')
+    all_query = 'SELECT COUNT(*) as count FROM {} WHERE {}'.format(table_name, ' IS NULL OR '.join(cols) + ' IS NULL')
     count = spark.sql(all_query).first()['count']
     print('One or more cols missing:  {}, {:.4f}%'.format(count, float(count) / float(total) * 100))
 
-    or_query = 'SELECT COUNT(*) as count FROM {} WHERE {}'.format(table,
-                                                                  ' IS NULL OR '.join(or_cols) + ' IS NULL' if len(
-                                                                      or_cols) > 0 else '')
-    count = spark.sql(or_query).first()['count']
+    if len(or_cols) >= 2:
+        or_query = 'SELECT COUNT(*) as count FROM {} WHERE {}'.format(table_name,
+                                                                      ' IS NULL OR '.join(or_cols) + ' IS NULL' if len(
+                                                                          or_cols) > 0 else '')
+        count = spark.sql(or_query).first()['count']
+
     print('{} missing: {}, {:.4f}%'.format(' or '.join(or_cols), count, float(count) / float(total) * 100))
-print('\nCompleted table stats\n')
+
+
+print('\nComputing UNCLEAN table stats...')
+for table in tables:
+    compute_stats(tables[table])
+print('\nCompleted UNCLEAN table stats\n')
+
 
 # PySpark UDF functions to create new cols
-quarter_udf_fundamental = udf(lambda dt: get_quarter(dt) + 1 if get_quarter(dt) != 4 else 1, IntegerType())
-year_udf_fundamental = udf(lambda dt: dt.year if get_quarter(dt) != 4 else dt.year + 1, IntegerType())
-quarter_udf = udf(lambda dt: get_quarter(dt), IntegerType())
+quarter_udf_fundamental = udf(lambda dt: get_quarter_year_fundamental(dt)[0], IntegerType())
+year_udf_fundamental = udf(lambda dt: get_quarter_year_fundamental(dt)[1], IntegerType())
+quarter_udf_technical = udf(lambda dt: get_quarter_technical(dt), IntegerType())
+
 
 # Clean up the two tables
 print('\nCleaning up tables...')
 for table in tables:
-    print('\n{}'.format(table.upper()))
-    print('Cleaning table'.format(table.upper()))
     not_required_cols = tables[table]['not_required_cols']
     non_null_cols = tables[table]['non_null_cols']
-    frame = tables[table]['df']
-    required_cols = [x for x in frame.columns if x not in not_required_cols]
+    df = tables[table]['df']
+    required_cols = [x for x in df.columns if x not in not_required_cols]
+    cleaned_table = df
 
-    cleaner_query = 'SELECT {} FROM {} WHERE {}'.format(', '.join(required_cols), table,
-                                                        ' IS NOT NULL AND '.join(non_null_cols) + ' IS NOT NULL')
-    print('Cleaner query: {}'.format(cleaner_query))
-    cleaned_table = spark.sql(cleaner_query)
+    print('\n{}'.format(table.upper()))
+    print('Cleaning table'.format(table.upper()))
+
+    if len(non_null_cols) >= 2:
+        cleaner_query = 'SELECT {} FROM {} WHERE {}'.format(', '.join(required_cols), table,
+                                                            ' IS NOT NULL AND '.join(non_null_cols) + ' IS NOT NULL')
+        cleaned_table = spark.sql(cleaner_query)
 
     if table == TECHNICALS:
         cleaned_table = transform_technicals(cleaned_table)
         cleaned_table = cleaned_table.withColumn('Year', year(cleaned_table['Date']))
-        cleaned_table = cleaned_table.withColumn('Quarter', quarter_udf('Date'))
+        cleaned_table = cleaned_table.withColumn('Quarter', quarter_udf_technical('Date'))
     elif table == FUNDAMENTALS:
         cleaned_table = cleaned_table.withColumn('Year', year_udf_fundamental('Date'))
         cleaned_table = cleaned_table.withColumn('Quarter', quarter_udf_fundamental('Date'))
         cleaned_table.createOrReplaceTempView(table)
-        fundamental_drop_duplicate = 'SELECT * FROM(SELECT  *, ROW_NUMBER() OVER(PARTITION BY f.Date, f.Instrument ORDER BY f.Instrument, f.Date DESC) rn FROM fundamentals as f) WHERE rn = 1'
+        fundamental_drop_duplicate = 'SELECT * FROM(SELECT  *, ROW_NUMBER() OVER(PARTITION BY Date, Instrument ORDER BY Instrument, Date DESC) rn FROM fundamentals) WHERE rn = 1'
         cleaned_table = spark.sql(fundamental_drop_duplicate)
         cleaned_table = cleaned_table.drop('rn')
 
@@ -145,4 +186,32 @@ for table in tables:
     print('Saving table to BigQuery')
     cleaned_table.write.format('bigquery').option('table', 'seng-550.seng_550_data.{}_cleaned'.format(table)).mode(
         'overwrite').save()
-    print('Newly cleaned table: {} has {} rows'.format(table.upper(), cleaned_table.count()))
+
+
+print('\nComputing CLEAN table stats...')
+for table in tables:
+    compute_stats(tables[table])
+print('\nCompleted CLEAN table stats\n')
+
+
+technicals_df = tables[TECHNICALS]['df']
+fundamentals_df = tables[FUNDAMENTALS]['df']
+
+print('\n\nJoining fundamentals and technicals:')
+joined_df = technicals_df.join(fundamentals_df.drop('Date'), ['Instrument', 'Quarter', 'Year'])
+
+joined_df.printSchema()
+joined_df.createOrReplaceTempView('joined')
+print('Saving joined table to BigQuery')
+joined_df.write.format('bigquery').option('table', 'seng-550.seng_550_data.technicals_fundamentals_cleaned').mode('overwrite').save()
+joined_tables = {
+    'joined': {
+        'name': 'joined',
+        'df': joined_df,
+        'or_cols': [],
+        'not_required_cols': [],
+        'non_null_cols': [],
+    },
+}
+
+compute_stats(joined_tables)
