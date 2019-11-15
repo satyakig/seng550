@@ -1,7 +1,6 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import to_timestamp, udf, year
 from pyspark.sql.types import DoubleType, IntegerType
-from json import dumps
 
 
 # The 'technicals' table has incorrect data types when you create it from the raw csv files for some reason
@@ -82,6 +81,7 @@ technicals_df = transform_technicals(technicals_df)
 fundamentals_df = spark.read.format('bigquery').option('table', 'seng-550.seng_550_data.fundamentals_raw').load().cache()
 fundamentals_df.createOrReplaceTempView(FUNDAMENTALS)
 
+
 # Dict that contains some values for each table used during computation
 # 'df': Stores the DataFrame for the table
 # 'or_cols': These cols will be used to compute the 'one or more cols' missing stats
@@ -117,25 +117,32 @@ def compute_stats(table_data):
     print('\n{}'.format(table_name.upper()))
     df.printSchema()
     print('Total rows: {}'.format(total))
-    print('Missing stats:')
+    print('Null stats:')
 
-    missing_counts = dict()
-    for key in cols:
-        count = spark.sql('SELECT COUNT(*) as count FROM {} WHERE {} IS NULL'.format(table_name, key)).first()['count']
-        missing_counts[key] = [count, '{:.4f}%'.format(float(count) / float(total) * 100)]
-    print(dumps(missing_counts, indent=4))
+    cols_len = len(cols)
+    query = 'SELECT '
+    for index, col in enumerate(cols):
+        if index == cols_len - 1:
+            partial_query = 'SUM(CASE WHEN {} IS NULL then 1 END) as {}'.format(col, col)
+        else:
+            partial_query = 'SUM(CASE WHEN {} IS NULL then 1 END) as {}, '.format(col, col)
+        query = query + partial_query
+    query = query + ' FROM {}'.format(table_name)
+    null_frame = spark.sql(query)
+    null_frame.show()
+    for col in cols:
+        first = null_frame.first()
+        count = first[col] if first[col] is not None else 0
+        print('{}: {} nulls or {:.4f}%'.format(col, count, float(count) / float(total) * 100))
 
     all_query = 'SELECT COUNT(*) as count FROM {} WHERE {}'.format(table_name, ' IS NULL OR '.join(cols) + ' IS NULL')
     count = spark.sql(all_query).first()['count']
-    print('One or more cols missing:  {}, {:.4f}%'.format(count, float(count) / float(total) * 100))
+    print('One or more cols: {} nulls or {:.4f}%'.format(count, float(count) / float(total) * 100))
 
     if len(or_cols) >= 2:
-        or_query = 'SELECT COUNT(*) as count FROM {} WHERE {}'.format(table_name,
-                                                                      ' IS NULL OR '.join(or_cols) + ' IS NULL' if len(
-                                                                          or_cols) > 0 else '')
+        or_query = 'SELECT COUNT(*) as count FROM {} WHERE {}'.format(table_name, ' IS NULL OR '.join(or_cols) + ' IS NULL')
         count = spark.sql(or_query).first()['count']
-
-    print('{} missing: {}, {:.4f}%'.format(' or '.join(or_cols), count, float(count) / float(total) * 100))
+        print('{}: {} nulls or {:.4f}%'.format(' or '.join(or_cols), count, float(count) / float(total) * 100))
 
 
 print('\nComputing UNCLEAN table stats...')
@@ -194,22 +201,26 @@ for table in tables:
 print('\nCompleted CLEAN table stats\n')
 
 
+# Clear up some memory
+spark.catalog.dropTempView(TECHNICALS)
+spark.catalog.dropTempView(FUNDAMENTALS)
+
+JOINED_TABLE_NAME = 'combined_technicals_fundamentals'
+
+print('\n\nJoining fundamentals and technicals')
 technicals_df = tables[TECHNICALS]['df']
 fundamentals_df = tables[FUNDAMENTALS]['df']
-
-print('\n\nJoining fundamentals and technicals:')
 joined_df = technicals_df.join(fundamentals_df.drop('Date'), ['Instrument', 'Quarter', 'Year'])
 
-joined_df.printSchema()
-joined_df.createOrReplaceTempView('joined')
+joined_df.createOrReplaceTempView(JOINED_TABLE_NAME)
 print('Saving joined table to BigQuery')
-joined_df.write.format('bigquery').option('table', 'seng-550.seng_550_data.technicals_fundamentals_cleaned').mode('overwrite').save()
+joined_df.write.format('bigquery').option('table', 'seng-550.seng_550_data.{}'.format(JOINED_TABLE_NAME)).mode('overwrite').save()
+
 joined_table = {
-    'name': 'joined',
+    'name': JOINED_TABLE_NAME,
     'df': joined_df,
     'or_cols': [],
     'not_required_cols': [],
     'non_null_cols': [],
 }
-
 compute_stats(joined_table)

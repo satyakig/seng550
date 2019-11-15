@@ -1,4 +1,6 @@
 #!/bin/bash
+# ./create_cluster.bash [cluster-name] [region]
+# ./create_cluster.bash seng550 us-central1
 
 NAME=$1
 REGION=$2
@@ -11,8 +13,10 @@ gcloud dataproc clusters create ${NAME} \
   --image-version=1.4 \
   --optional-components=ANACONDA,JUPYTER \
   --num-masters=1 \
-  --num-workers=3 \
-  --master-machine-type=n1-standard-2 \
-  --worker-machine-type=n1-standard-2 \
-  --master-boot-disk-size=250GB \
-  --worker-boot-disk-size=449GB 
+  --num-workers=5 \
+  --master-machine-type=n1-highmem-4 \
+  --master-boot-disk-type=pd-ssd \
+  --master-boot-disk-size=100GB \
+  --worker-machine-type=n1-highmem-4 \
+  --worker-boot-disk-size=80GB \
+  --worker-boot-disk-type=pd-ssd
