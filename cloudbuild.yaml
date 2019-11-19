@@ -17,9 +17,20 @@ steps:
       - --worker-machine-type=n1-highmem-4
       - --worker-boot-disk-size=80GB
       - --worker-boot-disk-type=pd-ssd
-      - --initialization-actions gs://dataproc-initialization-actions/python/conda-install.sh,gs://dataproc-initialization-actions/python/pip-install.sh
-      - --metadata 'CONDA_PACKAGES=tensorflow keras'
-      - --metadata 'PIP_PACKAGES=numpy==1.17.3 pandas==0.25.3 scipy==1.3.2 elephas'
+      - --initialization-actions=gs://dataproc-initialization-actions/python/conda-install.sh,gs://dataproc-initialization-actions/python/pip-install.sh
+      - --metadata='CONDA_PACKAGES=tensorflow keras'
+      - --metadata='PIP_PACKAGES=numpy==1.17.3 pandas==0.25.3 scipy==1.3.2 elephas'
+  - name: gcr.io/cloud-builders/gcloud
+    args:
+      - dataproc
+      - jobs
+      - submit
+      - pyspark
+      - gcp_scripts/check_python_env.py
+      - --cluster large-cluster
+      - --region us-central1
+      - --jars=gs://spark-lib/bigquery/spark-bigquery-latest.jar
+      - --driver-log-levels root=FATAL
   - name: gcr.io/cloud-builders/gcloud
     args:
       - dataproc
