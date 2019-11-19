@@ -1,0 +1,9 @@
+steps:
+  - name: 'ubuntu'
+    args: ['bash', 'gcp_scripts/create_cluster.bash', 'large-cluster']
+  - name: 'ubuntu'
+    args: ['bash', 'gcp_scripts/run_cluster.bash', 'data_cleaning/stats_clean_join.py', 'large-cluster']
+  - name: 'ubuntu'
+    args: ['bash', 'gcp_scripts/run_cluster.bash', 'models/k_means_on_fundamentals.py', 'large-cluster']
+  - name: 'ubuntu'
+    args: ['bash', 'gcp_scripts/run_cluster.bash', 'models/binning_k_means_results.py', 'large-cluster']
