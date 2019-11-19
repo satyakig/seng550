@@ -1,9 +1,55 @@
 steps:
-  - name: 'ubuntu'
-    args: ['bash', 'gcp_scripts/create_cluster.bash', 'large-cluster']
-  - name: 'ubuntu'
-    args: ['bash', 'gcp_scripts/run_cluster.bash', 'data_cleaning/stats_clean_join.py', 'large-cluster']
-  - name: 'ubuntu'
-    args: ['bash', 'gcp_scripts/run_cluster.bash', 'models/k_means_on_fundamentals.py', 'large-cluster']
-  - name: 'ubuntu'
-    args: ['bash', 'gcp_scripts/run_cluster.bash', 'models/binning_k_means_results.py', 'large-cluster']
+  - name: gcr.io/cloud-builders/gcloud
+    args:
+      - dataproc
+      - clusters
+      - create
+      - large-cluster
+      - --scopes=cloud-platform
+      - --region=us-central1
+      - --bucket=pyspark_bucket
+      - --max-idle=1h
+      - --image-version=1.4
+      - --optional-components=ANACONDA,JUPYTER
+      - --master-machine-type=n1-highmem-4
+      - --master-boot-disk-type=pd-ssd
+      - --master-boot-disk-size=100GB
+      - --worker-machine-type=n1-highmem-4
+      - --worker-boot-disk-size=80GB
+      - --worker-boot-disk-type=pd-ssd
+      - --initialization-actions gs://dataproc-initialization-actions/python/conda-install.sh,gs://dataproc-initialization-actions/python/pip-install.sh
+      - --metadata 'CONDA_PACKAGES=tensorflow keras'
+      - --metadata 'PIP_PACKAGES=numpy==1.17.3 pandas==0.25.3 scipy==1.3.2 elephas'
+  - name: gcr.io/cloud-builders/gcloud
+    args:
+      - dataproc
+      - jobs
+      - submit
+      - pyspark
+      - data_cleaning/stats_clean_join.py
+      - --cluster large-cluster
+      - --region us-central1
+      - --jars=gs://spark-lib/bigquery/spark-bigquery-latest.jar
+      - --driver-log-levels root=FATAL
+  - name: gcr.io/cloud-builders/gcloud
+    args:
+      - dataproc
+      - jobs
+      - submit
+      - pyspark
+      - models/k_means_on_fundamentals.py
+      - --cluster large-cluster
+      - --region us-central1
+      - --jars=gs://spark-lib/bigquery/spark-bigquery-latest.jar
+      - --driver-log-levels root=FATAL
+  - name: gcr.io/cloud-builders/gcloud
+    args:
+      - dataproc
+      - jobs
+      - submit
+      - pyspark
+      - models/binning_k_means_results.py
+      - --cluster large-cluster
+      - --region us-central1
+      - --jars=gs://spark-lib/bigquery/spark-bigquery-latest.jar
+      - --driver-log-levels root=FATAL
