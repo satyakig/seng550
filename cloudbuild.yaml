@@ -32,36 +32,36 @@ steps:
       - --cluster=auto-cluster
       - --region=us-central1
       - --jars=gs://spark-lib/bigquery/spark-bigquery-latest.jar
-#  - name: gcr.io/cloud-builders/gcloud
-#    args:
-#      - dataproc
-#      - jobs
-#      - submit
-#      - pyspark
-#      - data_cleaning/stats_clean_join.py
-#      - --cluster auto-cluster
-#      - --region us-central1
-#      - --jars=gs://spark-lib/bigquery/spark-bigquery-latest.jar
-#  - name: gcr.io/cloud-builders/gcloud
-#    args:
-#      - dataproc
-#      - jobs
-#      - submit
-#      - pyspark
-#      - models/k_means_on_fundamentals.py
-#      - --cluster auto-cluster
-#      - --region us-central1
-#      - --jars=gs://spark-lib/bigquery/spark-bigquery-latest.jar
-#  - name: gcr.io/cloud-builders/gcloud
-#    args:
-#      - dataproc
-#      - jobs
-#      - submit
-#      - pyspark
-#      - models/binning_k_means_results.py
-#      - --cluster auto-cluster
-#      - --region us-central1
-#      - --jars=gs://spark-lib/bigquery/spark-bigquery-latest.jar
+  - name: gcr.io/cloud-builders/gcloud
+    args:
+      - dataproc
+      - jobs
+      - submit
+      - pyspark
+      - data_cleaning/stats_clean_join.py
+      - --cluster auto-cluster
+      - --region us-central1
+      - --jars=gs://spark-lib/bigquery/spark-bigquery-latest.jar
+  - name: gcr.io/cloud-builders/gcloud
+    args:
+      - dataproc
+      - jobs
+      - submit
+      - pyspark
+      - models/k_means_on_fundamentals.py
+      - --cluster auto-cluster
+      - --region us-central1
+      - --jars=gs://spark-lib/bigquery/spark-bigquery-latest.jar
+  - name: gcr.io/cloud-builders/gcloud
+    args:
+      - dataproc
+      - jobs
+      - submit
+      - pyspark
+      - models/binning_k_means_results.py
+      - --cluster auto-cluster
+      - --region us-central1
+      - --jars=gs://spark-lib/bigquery/spark-bigquery-latest.jar
   - name: gcr.io/cloud-builders/gcloud
     args:
       - dataproc
