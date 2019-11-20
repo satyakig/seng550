@@ -10,7 +10,7 @@ from pyspark.ml.evaluation import RegressionEvaluator
 
 # Constants
 DATABASE = "seng-550.seng_550_data"
-TABLE = "combined_fund_tech_2"
+TABLE = "combined_technicals_fundamentals"
 
 # Create the Spark Session on this node
 spark = SparkSession.builder.master('yarn').appName(
