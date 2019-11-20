@@ -1,27 +1,27 @@
 steps:
-#  - name: gcr.io/cloud-builders/gcloud
-#    args:
-#      - dataproc
-#      - clusters
-#      - create
-#      - auto-cluster
-#      - --scopes=cloud-platform
-#      - --region=us-central1
-#      - --bucket=pyspark_bucket
-#      - --max-idle=1h
-#      - --image-version=1.4
-#      - --optional-components=ANACONDA,JUPYTER
-#      - --num-masters=1
-#      - --num-workers=5
-#      - --master-machine-type=n1-highmem-4
-#      - --master-boot-disk-type=pd-ssd
-#      - --master-boot-disk-size=100GB
-#      - --worker-machine-type=n1-highmem-4
-#      - --worker-boot-disk-size=80GB
-#      - --worker-boot-disk-type=pd-ssd
-#      - --initialization-actions=gs://dataproc-initialization-actions/python/conda-install.sh,gs://dataproc-initialization-actions/python/pip-install.sh
-#      - --metadata=CONDA_PACKAGES=tensorflow keras
-#      - --metadata=PIP_PACKAGES=numpy==1.17.3 pandas==0.25.3 scipy==1.3.2 elephas
+  - name: gcr.io/cloud-builders/gcloud
+    args:
+      - dataproc
+      - clusters
+      - create
+      - auto-cluster
+      - --scopes=cloud-platform
+      - --region=us-central1
+      - --bucket=pyspark_bucket
+      - --max-idle=1h
+      - --image-version=1.4
+      - --optional-components=ANACONDA,JUPYTER
+      - --num-masters=1
+      - --num-workers=5
+      - --master-machine-type=n1-highmem-4
+      - --master-boot-disk-type=pd-ssd
+      - --master-boot-disk-size=100GB
+      - --worker-machine-type=n1-highmem-4
+      - --worker-boot-disk-size=80GB
+      - --worker-boot-disk-type=pd-ssd
+      - --initialization-actions=gs://dataproc-initialization-actions/python/conda-install.sh,gs://dataproc-initialization-actions/python/pip-install.sh
+      - --metadata=CONDA_PACKAGES=tensorflow keras
+      - --metadata=PIP_PACKAGES=numpy==1.17.3 pandas==0.25.3 scipy==1.3.2 elephas
   - name: gcr.io/cloud-builders/gcloud
     args:
       - dataproc
@@ -29,8 +29,8 @@ steps:
       - submit
       - pyspark
       - gcp_scripts/check_python_env.py
-      - --cluster auto-cluster
-      - --region us-central1
+      - --cluster=auto-cluster
+      - --region=us-central1
       - --jars=gs://spark-lib/bigquery/spark-bigquery-latest.jar
 #  - name: gcr.io/cloud-builders/gcloud
 #    args:
