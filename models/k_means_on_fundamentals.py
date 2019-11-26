@@ -151,4 +151,5 @@ transformed.show()
 # Write data to bigquery for further analysis.
 transformed.write.format('bigquery') \
   .option('table', DATABASE + '.k_means_data') \
+  .mode('overwrite') \
   .save()

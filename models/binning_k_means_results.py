@@ -83,4 +83,5 @@ binnable_data.show()
 print('Write binnable_data to bigquery.')
 binnable_data.write.format('bigquery') \
   .option('table', DATABASE + '.clustered_data_with_historical_returns') \
+  .mode('overwrite') \
   .save()

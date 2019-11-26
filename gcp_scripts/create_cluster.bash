@@ -1,13 +1,12 @@
 #!/bin/bash
-# ./create_cluster.bash [cluster-name] [region]
-# ./create_cluster.bash seng550 us-central1
+# ./create_cluster.bash [cluster-name]
+# ./create_cluster.bash seng550
 
 NAME=$1
-REGION=$2
 
 gcloud dataproc clusters create ${NAME} \
   --scopes=cloud-platform \
-  --region=${REGION} \
+  --region=us-central1 \
   --bucket=pyspark_bucket \
   --max-idle=1h \
   --image-version=1.4 \
@@ -19,4 +18,7 @@ gcloud dataproc clusters create ${NAME} \
   --master-boot-disk-size=100GB \
   --worker-machine-type=n1-highmem-4 \
   --worker-boot-disk-size=80GB \
-  --worker-boot-disk-type=pd-ssd
+  --worker-boot-disk-type=pd-ssd \
+  --initialization-actions gs://dataproc-initialization-actions/python/conda-install.sh,gs://dataproc-initialization-actions/python/pip-install.sh \
+  --metadata 'CONDA_PACKAGES=tensorflow keras' \
+  --metadata 'PIP_PACKAGES=numpy==1.17.3 pandas==0.25.3 scipy==1.3.2 elephas'
