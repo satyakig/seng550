@@ -20,5 +20,5 @@ gcloud dataproc clusters create ${NAME} \
   --worker-boot-disk-size=80GB \
   --worker-boot-disk-type=pd-ssd \
   --initialization-actions gs://dataproc-initialization-actions/python/conda-install.sh,gs://dataproc-initialization-actions/python/pip-install.sh \
-  --metadata 'CONDA_PACKAGES=tensorflow keras' \
-  --metadata 'PIP_PACKAGES=numpy==1.17.3 pandas==0.25.3 scipy==1.3.2 elephas'
+  --metadata 'CONDA_PACKAGES=tensorflow keras sklearn' \
+  --metadata 'PIP_PACKAGES=numpy==1.17.3 pandas==0.25.3 scipy==1.3.2 elephas systemml'
