@@ -37,15 +37,20 @@ Flatten = tf.keras.layers.Flatten
 LSTM = tf.keras.layers.LSTM
 RepeatVector = tf.keras.layers.RepeatVector
 TimeDistributed = tf.keras.layers.TimeDistributed
+l1_l2 = tf.keras.regularizers.l1_l2
 
-
-# TODO: CHECK I AM GRABBING THE RIGHT COLUMN for my model output.
-# TODO: Check I am inputting things correctly to each model.
-# TODO: Make sure I am inputting correct datasets for each part of model traning.
-# TODO: Train on a few more epochs.
-# TODO: Check future result outputs.
+# TODO: Figure out why LSTM optimizer is going to nan,
+#       See if I should add regularizer. DONE, increased batch size and
+#       added regularization.
+# TODO: Adding training window, which takes a sliding window of data to train
+# on, say max 4 years. Don't think I need this anymore. NA
+# TODO: Trying grabbing data from past 4 years max.
+# TODO: Make n_input 360, output 180. DONE
 # TODO: Get final predicted price.
-# TODO: Clean up comments.
+# TODO: Print out summary information.
+# TODO: Save model.
+# TODO: Calc predicted price using year over year average growth.
+# TODO: Get this working in GCP.
 
 def minMaxScaler(pd_col):
     '''
@@ -89,6 +94,16 @@ def rescaleLabel(prices, c_max, c_min):
 
 
 def clean_up_input_data(df_data):
+    '''
+    Clean up data read in. This involves subsetting out desired columns, 
+    reordering columns, and scaling data.
+    
+    Args:
+        df_data: original read in data.
+    
+    Return:
+        Cleaned up dataframe.
+    '''
     fund_cols = ['Gross_Dividends___Common_Stock',
       'Net_Income_Before_Taxes', 'Normalized_Income_Avail_to_Cmn_Shareholders',
       'Operating_Expenses', 'EBIT', 'Total_Assets__Reported',
@@ -101,7 +116,6 @@ def clean_up_input_data(df_data):
 
 
     all_cols = tech_cols + fund_cols + label_cols
-
 
     df_model_data = df_data.loc[:,all_cols]
 
@@ -124,12 +138,6 @@ def clean_up_input_data(df_data):
     return df_model_data
 
 
-'''
-Model looks at daily data for past 3 years and predicts next 6 months.
-Loss function is the RMSE for day 1 to day 180 (6 months ahead).
-'''
-
-
 def split_to_train_val_test_sets(pd_data, window=180):
     '''
     Take orignal dataset and split it up.
@@ -144,9 +152,6 @@ def split_to_train_val_test_sets(pd_data, window=180):
         train, validation, and test datasets, all of which are numpy arrays
         and the date ranges associated with each of the datasets.
     '''
-    # Window for LSTM is 180 days.
-    #window = 180
-
     days_in_data = pd_data.shape[0]
 
     num_perfect_splits = int(days_in_data/window)
@@ -165,19 +170,18 @@ def split_to_train_val_test_sets(pd_data, window=180):
                         (training_splits+test_splits)*window,:]
     val = pd_data.iloc[(training_splits+test_splits)*window:\
                        (num_perfect_splits*window),:]
-    
+
     # Get dates associated with each dataset
     train_dates = np.array(train.index)
     test_dates = np.array(test.index)
     val_dates = np.array(val.index)
-    
 
     # Convert to numpy arrays
     train = train.to_numpy()
     test = test.to_numpy()
     val = val.to_numpy()
 
-    # Restructure data into 180 day windows
+    # Restructure data into window size (day) samples
     train = np.array(np.split(train, training_splits))
 
     test = np.array(np.split(test, test_splits))
@@ -204,6 +208,13 @@ def get_daily_increment_windows(train,n_input=180,n_out=180):
         [day 181, day 182, ... day 360]
         ...
 
+    Also, organizes X and y as follows:
+    X[sample_i, day_i_to_i+n_input,:] = features (including price) for days i
+    to i + n_input - 1.
+    y[sample_i, :] = price for days i + n_input to i + n_input + n_output -1.
+    
+    This ensures the input features are predicting the immediate next price.
+    
     Args:
         train: Numpy array of training data.
         n_input: Size of input window used to make predictions.
@@ -224,6 +235,7 @@ def get_daily_increment_windows(train,n_input=180,n_out=180):
         in_end = in_start + n_input
         out_end = in_end + n_out
         # Ensure we have enough data for next instance.
+        # This is very important for setting up training data.
         if out_end <= len(data):
             X.append(data[in_start:in_end,:])
             # Price_Close (the label), is the last column in the array.
@@ -256,19 +268,15 @@ def make_forecast(model, history, n_input=180):
     input_x = input_x.reshape((1, input_x.shape[0], input_x.shape[1]))
     # Forecast the next n_output (default is 180 days).
     yhat = model.predict(input_x, verbose=2)
-    # We only want the vector forecast.
-    #yhat = yhat[0]
-
-    # TODO: RESCALE PRICE BACK TO ORIGINAL SCALE.
-    # Could also try not scaling price and seeing how things work.
+    # Result is wrapped in extra array, therefore, unwrap it.
     return yhat[0]
 
 
 def evaluate_forecasts(actual, predicted):
     '''
     Evaluate forecasts. Each array has shape (x,y) where x is the number
-    of timesteps predicts are made for and y is the number of days prediction
-    are made.
+    of timesteps predictions are made for and y is the number of days
+    prediction are made.
     Ex. actual.shape = (10,100)
     Predictions were made for 10 timesteps, and each prediction was for 100
     different days.
@@ -283,7 +291,6 @@ def evaluate_forecasts(actual, predicted):
     # calculate an RMSE score for each day
     mse_for_all_days = np.sqrt(np.square(actual-predicted)).reshape(
             (predicted.shape[0]*predicted.shape[1]))
-    #np.sqrt(np.square(actual-predicted).mean(axis=0))
     # Calculate overall RMSE
     score = np.sum(np.sqrt(np.square(actual-predicted)))
     return score, mse_for_all_days
@@ -292,22 +299,31 @@ def evaluate_forecasts(actual, predicted):
 def calc_average_pct_error(actual, pred):
     '''
     Calculate the average percent error of predicted results.
-    
+
     Args:
         actual: Actual prices.
         pred: Predicte prices.
-    
+
     Return:
         Average percent error
     '''
     return (np.abs((pred-actual))/actual).mean()
 
 
-def build_model(train, n_input):
+def build_model(train, n_input, n_out = 180):
+    '''
+    Builds LSTM model on training data.
+    
+    Args:
+        train: training data.
+        n_input: Window of input data to use as input to LSTM to make
+          prediction.
+        n_out: Number of days to predict ahead. 
+    '''
     # Prepare data.
-    train_x, train_y = get_daily_increment_windows(train, n_input)
+    train_x, train_y = get_daily_increment_windows(train, n_input, n_out)
     # Define parameters.
-    verbose, epochs, batch_size = 1, 5, 32
+    verbose, epochs, batch_size = 1, 8, 128
     n_timesteps = train_x.shape[1]
     n_features = train_x.shape[2]
     n_outputs = train_y.shape[1]
@@ -315,56 +331,109 @@ def build_model(train, n_input):
     train_y = train_y.reshape((train_y.shape[0], train_y.shape[1], 1))
     # Define model.
     model = Sequential()
-    model.add(LSTM(200, activation='relu', input_shape=(n_timesteps,
-                                                        n_features)))
+    # Add LSTM with 200 units, and make is be able to accept all features
+    # provided (as opposed to the defualt LSTM which only takes one feature).
+    # recurrent_dropout drops connections between recurrent connections.
+    # kernal_regularizer minimizes the weight matrix W in the y = Wx + b 
+    # regression equation.
+    model.add(LSTM(200, activation='relu',
+                   input_shape=(n_timesteps, n_features),
+                   recurrent_dropout=0.2,
+                   kernel_regularizer=l1_l2(l1=0.001, l2=0.01)))
+    # Repeates the input vector to this layer n_output times.
+    # This is some boilerplate code requirement LSTM.
     model.add(RepeatVector(n_outputs))
-    model.add(LSTM(200, activation='relu', return_sequences=True))
+    # Feed the LSTM into another LSTM.
+    # return_sequences = True returns hidden units for each timestep input
+    # into the LSTM instead of just the final timestep hidden unit.
+    # Ex. You feed in '1, 2, 3' and you want to predict '4, 5, 6'.
+    # Without return_sequences = True you would return the final hidden unit
+    # value, which in this case would be the predicted output (6 or 5.8
+    # depending good the LSTM is), but with return true you return
+    # [4, 5.1, 5.9] (I.e. all hidden values).
+    model.add(LSTM(200, activation='relu', return_sequences=True,
+                   recurrent_dropout=0.1,
+                   kernel_regularizer=l1_l2(l1=0.001, l2=0.01)))
+    # This is used to match up matrix dimension correctly.
+    # It is required because we have a vector of hidden units for each unit
+    # output from the previous layer.
     model.add(TimeDistributed(Dense(100, activation='relu')))
+    # Makes final output be a vector that is of shape n_input.
     model.add(TimeDistributed(Dense(1)))
-    model.compile(loss='mse', optimizer='adam')
+    model.compile(loss='mse', optimizer='adam',metrics=['accuracy'])
     # Fit network.
     model.fit(train_x, train_y, epochs=epochs, batch_size=batch_size,
               verbose=verbose)
     return model
 
 
-def evaluate_model(model, train, test, n_input, max_price, min_price):
-    # Fit model
-    #model = build_model(train, n_input)
-    # history is a list of weekly data
+def evaluate_model(model, train, test, n_input, n_out, max_price, min_price):
+    '''
+    Evaluate model.
+    
+    Args:
+        model: trained LSTM model.
+        train: training data.
+        test: test data
+        n_input: Input window size to model. Must match the input window used
+          for training.
+        n_out: Output window size to model. Must match the output window used
+          for training.
+        max_price: max price seen in original data (used for unscaling).
+        min_price: min price seen in original data (used for unscaling).
+    
+    Returns:
+        score: sum of RMSE for each predicted example.
+        scores: RMSE for each predicted example.
+        predictions: predicted prices.
+        actual_prices: actual prices.
+    '''
     history = [x for x in train]
-    # walk-forward validation over each week
+    # Walk-forward validation over each window.
     predictions = list()
     for i in range(len(test)):
-        # predict the week
+        # Predict the output window.
         yhat_sequence = make_forecast(model, history, n_input)
-        # store the predictions
+        # Store the predictions.
         yhat_sequence = rescaleLabel(yhat_sequence, max_price, min_price)
         predictions.append(yhat_sequence)
-        # get real observation and add to history for predicting the next week
+        # Get real observations and add to history for predicting the next
+        # window.
         history.append(test[i, :])
-    # evaluate predictions days for each week
+    # Evaluate prediction days for window.
     predictions = np.array(predictions)
     predictions = predictions.reshape((predictions.shape[0],
                                        predictions.shape[1]))
-    actual_prices = rescaleLabel(test[:, :, -1], max_price, min_price)
+    actual_prices = rescaleLabel(test[:, :n_out, -1], max_price, min_price)
     score, scores = evaluate_forecasts(actual_prices, predictions)
     return score, scores, predictions, actual_prices
 
 
 def predict_future_results(model, train, n_input, max_price, min_price):
-    # history is a list of weekly data
+    '''
+    Predict future results, used most recent data that has no lables (price).
+    
+    Args:
+        model: trained LSTM model.
+        train: training data.
+        test: test data
+        n_input: Input window size to model. Must match the input window used
+          for training.
+        max_price: max price seen in original data (used for unscaling).
+        min_price: min price seen in original data (used for unscaling).
+    
+    Returns:
+        predictions: predicted prices.
+    '''
     history = [x for x in train]
-    # predict the week
     yhat_sequence = make_forecast(model, history, n_input)
-    # store the predictions
     yhat_sequence = rescaleLabel(yhat_sequence, max_price, min_price)
     return yhat_sequence
 
 def summary_of_results(dataset_name ,score, pred, actual):
     '''
     Print out summary statistics of model predictions.
-    
+
     Args:
         dataset_name: train, test, or val.
         score: sum of RMSE for all predictions.
@@ -380,6 +449,27 @@ def summary_of_results(dataset_name ,score, pred, actual):
     print('---------------------------')
     print('\n\n')
 
+
+def combine_pred_and_actual_results(dates, pred, actual):
+    '''
+    Combines predictions and actuals with their associated dates.
+    
+    Args:
+        dates: list of dates.
+        pred: predicted prices.
+        actual: actual prices.
+    
+    Returns:
+        Pandas dataframe with date, pred, actual.
+    '''
+    orig_days = dates.shape[0]
+    pred_days = pred.flatten().shape[0]
+    num_dates = min(orig_days,pred_days)
+    comparison = {'Date': dates[:num_dates],
+                       'test_pred': pred.flatten()[:num_dates],
+                       'test_actual': actual.flatten()[:num_dates]}
+    return pd.DataFrame(comparison)  
+
 df_data = pd.read_csv('/Users/paindox/Documents/Sixth Year/SENG 550/TMP/facebook_tech_and_fund_data.csv')
 max_price = df_data[['Price_Close']].max()[0]
 min_price = df_data[['Price_Close']].min()[0]
@@ -390,41 +480,48 @@ df_model_data = clean_up_input_data(df_data)
 (train, test, val), (train_dates,test_dates,val_dates) = \
   split_to_train_val_test_sets(df_model_data)
 
-# Set the window size for prediction (and by default input to lstm as well).
-window = 180
+# Set the window size for prediction (and by default input to LSTM as well).
+window = 360
+output_window = 90
 
-# Build model on training data
+# Build model on training data.
 print('Building model on training data')
-training_model = build_model(train, window)
+training_model = build_model(train, window, output_window)
 
-# Get model performance on training dataset
+# Get model performance on training dataset.
 test_score, test_scores, test_pred, test_actual = evaluate_model(
-        model,train, test, window, max_price, min_price)
+        training_model,train, test, window, output_window,
+        max_price, min_price)
 
 # Get summary of results on test set.
 summary_of_results('test', test_score, test_pred, test_actual)
 
-# Build model on training and test data (to predict validation data)
+# Build model on training and test data (to predict validation data).
 print('Retraining model on training and test sets combined')
 train_test = np.concatenate((train,test))
-validation_model = build_model(train_test, window)
+validation_model = build_model(train_test, window, output_window)
 
-# Get model performance on validation dataset
+# Get model performance on validation dataset.
 val_score, val_scores, val_pred, val_actual = evaluate_model(
-        validation_model, train_test, val, window, max_price, min_price)
+        validation_model, train_test, val, window, output_window,
+        max_price, min_price)
 summary_of_results('validation', val_score, val_pred, val_actual)
 
 # Make future predictions, using validation set.
 print('Building model on full dataset to make final predictions')
 full_dataset = np.concatenate((train,test,val))
-prediction_model = build_model(full_dataset, window)
-pred_results = predict_future_results(prediction_model,full_dataset,n_input,
+prediction_model = build_model(full_dataset, window, output_window)
+pred_results = predict_future_results(prediction_model,full_dataset,window,
                                       max_price, min_price)
 
 
 
 
 # Combine results with the date they are for
-
+test_results_combined = combine_pred_and_actual_results(test_dates, test_pred,
+                                                      test_actual)
+validation_results_combined = combine_pred_and_actual_results(val_dates,
+                                                              val_pred,
+                                                              val_actual)
 
 # TODO: Save the model weights somewhere.
