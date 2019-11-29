@@ -3,11 +3,12 @@
 # The metrics that are followed are graham metrics
 
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import year, sum as _sum, abs as _abs, avg, first, last, lit, max as _max
+from pyspark.sql.functions import year, month, sum as _sum, abs as _abs, avg, first, last, lit, max as _max
 
 # Constants
 DATABASE = 'seng-550.seng_550_data'
 FUND_TABLE = 'fundamentals_cleaned'
+TECH_TABLE = 'technicals_cleaned'
 
 # Create the Spark Session on this node
 spark = SparkSession.builder.master('yarn').appName('graham_metrics').getOrCreate()
@@ -21,6 +22,9 @@ spark.conf.set('temporaryGcsBucket', bucket)
 # Load data from Big Query
 fund_data = spark.read.format('bigquery').option('table', '{}.{}'.format(DATABASE, FUND_TABLE)).load().cache()
 fund_data.createOrReplaceTempView('fund_data')
+
+tech_data = spark.read.format('bigquery').option('table', '{}.{}'.format(DATABASE, TECH_TABLE)).load().cache()
+tech_data.createOrReplaceTempView('tech_data')
 
 
 # Metric 1: Companies with revenue over 5 million
@@ -142,12 +146,62 @@ increased_earnings = increased_earnings.withColumn('metric6', lit(1))\
 increased_earnings.show()
 
 
+# Getting the latest price for each instrument
+latest_close_price = tech_data\
+    .groupBy('Instrument', year('Date').alias('actual_year'), month('Date').alias('month'))\
+    .agg(last('Price_Close').alias('Price'))\
+    .orderBy('Instrument', 'actual_year', 'month')\
+    .filter('actual_year == 2019')\
+    .groupBy('Instrument')\
+    .agg(last('Price').alias('Price'))\
+    .orderBy('Instrument')
+latest_close_price.show()
+
+
+# Merging latest price with fund data
+fund_data_with_price = fund_data.join(latest_close_price, 'Instrument', 'full')
+
+# Metric 7: Current Price <= 15 * Earnings Per Share
+earnings_15_eps = fund_data_with_price\
+    .groupBy('Instrument', year('Date').alias('actual_year'))\
+    .agg((_sum('Normalized_Income_Avail_to_Cmn_Shareholders') / avg('Total_Common_Shares_Outstanding')).alias('EPS'),
+         last('Price').alias('Price')) \
+    .orderBy('Instrument', 'actual_year') \
+    .filter('actual_year == 2019')\
+    .filter('Price <= 15 * EPS')
+
+earnings_15_eps.show()
+earnings_15_eps = earnings_15_eps.withColumn('metric7', lit(1))\
+    .drop('actual_year', 'EPS', 'Price')\
+    .orderBy('Instrument')
+earnings_15_eps.show()
+
+
+# Metric 8: Current value <= 1.5 Book value
+current_value = fund_data_with_price\
+    .groupBy('Instrument', year('Date').alias('actual_year'))\
+    .agg(avg('Total_Common_Shares_Outstanding').alias('Shares_Outstanding'),
+         last('Price').alias('Price'),
+         avg('Book_Value_Per_Share').alias('Book_Value_Per_Share')) \
+    .orderBy('Instrument', 'actual_year') \
+    .filter('actual_year == 2019')\
+    .filter('(Price * Shares_Outstanding) <= (1.5 * Book_Value_Per_Share * Shares_Outstanding)')
+
+current_value.show()
+current_value = current_value.withColumn('metric8', lit(1))\
+    .drop('actual_year', 'Shares_Outstanding', 'Price', 'Book_Value_Per_Share')\
+    .orderBy('Instrument')
+current_value.show()
+
+
 # Join all the metrics tables to form one table
 joined = revenue_over_5mil.join(asset_twice_liabilities, 'Instrument', 'full')\
     .join(capital_more_than_debt, 'Instrument', 'full')\
     .join(positive_earnings, 'Instrument', 'full')\
     .join(dividend, 'Instrument', 'full')\
     .join(increased_earnings, 'Instrument', 'full')\
+    .join(earnings_15_eps, 'Instrument', 'full')\
+    .join(current_value, 'Instrument', 'full')\
     .orderBy('Instrument')\
     .na.fill(0)
 joined.show()
