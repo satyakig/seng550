@@ -579,14 +579,14 @@ def run_everything(df_data):
     _, simple_pct_err = year_over_year_model(df_model_data)
     
     # Combined results for everything.
-    d = {'Instrument': df_data.loc[0,['Instrument']][0],
-         'training_pct_err':  test_pct_err,
-         'val_pct_err': val_pct_err,
-         'simple_model_pct_err': simple_pct_err,
-         'training_RMSE_sum': test_score,
-         'test_RMSE_sum': val_score,
-         'future_predicted_price': pred_price,
-         'potential_upside': potential_upside}
+    d = {'Instrument': [df_data.loc[0,['Instrument']][0]],
+         'training_pct_err':  [test_pct_err],
+         'val_pct_err': [val_pct_err],
+         'simple_model_pct_err': [simple_pct_err],
+         'training_RMSE_sum': [test_score],
+         'test_RMSE_sum': [val_score],
+         'future_predicted_price': [pred_price],
+         'potential_upside': [potential_upside]}
     
     final_model_results = pd.DataFrame(d)
     print(final_model_results)
