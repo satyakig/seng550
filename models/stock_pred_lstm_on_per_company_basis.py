@@ -19,9 +19,11 @@ An LSTM model with walk-forward validation is used.
 #from keras.layers import RepeatVector
 #from keras.layers import TimeDistributed
 
-from math import sqrt, ceil
+from pyspark.sql import SparkSession
+from math import ceil
 import numpy as np
 import pandas as pd
+from collections import deque
 
 from matplotlib import pyplot
 import tensorflow as tf
@@ -51,6 +53,28 @@ l1_l2 = tf.keras.regularizers.l1_l2
 # TODO: Save model.
 # TODO: Calc predicted price using year over year average growth.
 # TODO: Get this working in GCP.
+
+
+# Setup Spark
+BQ_PREFIX = 'seng-550.seng_550_data'
+COMBINED_TABLE = 'combined_technicals_fundamentals'
+
+# Setup the PySpark session
+spark = SparkSession \
+    .builder \
+    .master('yarn') \
+    .appName('parallel_lstm') \
+    .config('spark.executor.cores', '2') \
+    .getOrCreate()
+
+bucket = spark.sparkContext._jsc.hadoopConfiguration().get('fs.gs.system.bucket')
+spark.conf.set('temporaryGcsBucket', bucket)
+sparkContext = spark.sparkContext
+
+
+# Read the combined table
+combined_df = spark.read.format('bigquery').option('table', '{}.{}'.format(BQ_PREFIX, COMBINED_TABLE)).load().cache()
+combined_df.createOrReplaceTempView(COMBINED_TABLE)
 
 def minMaxScaler(pd_col):
     '''
@@ -245,7 +269,6 @@ def get_daily_increment_windows(train,n_input=180,n_out=180):
     return np.array(X), np.array(y)
 
 
-
 def make_forecast(model, history, n_input=180):
     '''
     Make forcast on the most recent history size n_input, to predict next time
@@ -366,6 +389,7 @@ def build_model(train, n_input, n_out = 180):
               verbose=verbose)
     return model
 
+
 def year_over_year_model(data):
     '''
     A simple model that uses average year over year growth to predict stock
@@ -462,6 +486,7 @@ def predict_future_results(model, train, n_input, max_price, min_price):
     yhat_sequence = make_forecast(model, history, n_input)
     yhat_sequence = rescaleLabel(yhat_sequence, max_price, min_price)
     return yhat_sequence
+
 
 def summary_of_results(dataset_name ,score, pred, actual):
     '''
@@ -596,9 +621,46 @@ def run_everything(df_data):
     # TODO: Save the model weights somewhere.
 
 
-# Get data for 1 ticker. 
-df_data = pd.read_csv('/Users/paindox/Documents/Sixth Year/SENG 550/TMP/facebook_tech_and_fund_data.csv')
-
-final_model_results = run_everything(df_data)
-
+# Get data for 1 ticker.
+# df_data = pd.read_csv('/Users/paindox/Documents/Sixth Year/SENG 550/TMP/facebook_tech_and_fund_data.csv')
+#
+# final_model_results = run_everything(df_data)
+#
 # TODO: store final_model_results for ticker.
+
+
+MAX_COMPANIES = 20
+
+# Pick [MAX_COMPANIES] number of random companies
+uniques_companies = combined_df.select('Instrument').distinct().collect()[:MAX_COMPANIES]
+company_list = list(map(lambda x: x.__getitem__('Instrument'), uniques_companies))
+
+FB = 'FB.O'
+GOOGLE = 'GOOGL.O'
+
+# Add Facebook and Google
+if FB not in company_list:
+    company_list.append(FB)
+if GOOGLE not in company_list:
+    company_list.append(GOOGLE)
+
+companies_len = len(company_list)
+print('Using {} companies: {}'.format(len(company_list), ' '.join(companies_len)))
+
+companies_data = []
+# Get data for 5 companies at a time and store it to be used later
+# Make models for the 5 companies in parallel since we have 5 workers
+# Pretty hacky but you can't access the sparkContext from the workers so the data must be collected at the driver level
+for index, company_name in enumerate(company_list):
+    if index % 5 == 0:
+        outputs = sparkContext.parallelize(companies_data).map(lambda df_data: run_everything(df_data)).collect()
+        companies_data = []
+
+    print('Collecting data for {} (#{} out of {})'.format(company_name, index + 1, companies_len))
+    data_query = 'SELECT * FROM {} WHERE Instrument="{}"'.format(COMBINED_TABLE, company_name)
+    data = spark.sql(data_query)
+    companies_data.append(data.toPandas())
+
+    if index == companies_len - 1:
+        outputs = sparkContext.parallelize(companies_data).map(lambda df_data: run_everything(df_data)).collect()
+        companies_data = []
