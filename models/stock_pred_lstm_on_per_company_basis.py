@@ -645,7 +645,7 @@ if GOOGLE not in company_list:
     company_list.append(GOOGLE)
 
 companies_len = len(company_list)
-print('Using {} companies: {}'.format(len(company_list), ' '.join(companies_len)))
+print('Using {} companies: {}'.format(companies_len, ' '.join(company_list)))
 
 companies_data = []
 # Get data for 5 companies at a time and store it to be used later
