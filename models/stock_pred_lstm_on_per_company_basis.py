@@ -302,12 +302,12 @@ def calc_average_pct_error(actual, pred):
 
     Args:
         actual: Actual prices.
-        pred: Predicte prices.
+        pred: Predicted prices.
 
     Return:
         Average percent error
     '''
-    return (np.abs((pred-actual))/actual).mean()
+    return 100*(np.abs((pred-actual))/actual).mean()
 
 
 def build_model(train, n_input, n_out = 180):
@@ -323,7 +323,7 @@ def build_model(train, n_input, n_out = 180):
     # Prepare data.
     train_x, train_y = get_daily_increment_windows(train, n_input, n_out)
     # Define parameters.
-    verbose, epochs, batch_size = 1, 8, 128
+    verbose, epochs, batch_size = 1, 30, 128
     n_timesteps = train_x.shape[1]
     n_features = train_x.shape[2]
     n_outputs = train_y.shape[1]
@@ -366,7 +366,40 @@ def build_model(train, n_input, n_out = 180):
               verbose=verbose)
     return model
 
+def year_over_year_model(data):
+    '''
+    A simple model that uses average year over year growth to predict stock
+    price. Predicted stock price is the same every day for a year and equals
+    previous year average * (1+ average_growth_rate).
+    
+    Args:
+        data: scaled data for training.
+    
+    Returns:
+        prices: actual and predicted prices for each day.
+        avg_pct_err = average percent error across all days.
+    '''
+    prices = data.loc[:,['Price_Close']]
+    prices['year'] = pd.to_datetime(prices.index).year
+    avg = prices.groupby(['year']).mean()
+    avg_yearly_growth = ((avg[['Price_Close']] - avg.shift()[['Price_Close']])\
+                         /avg[['Price_Close']]).dropna()
+    #avg_yearly_growth = avg_yearly_growth.rename(columns={'Price_Close':'Avg_Yearly_Growth'})
+    growth_factor = 1 + avg_yearly_growth.mean()[0]
+    avg['next_year_price'] = avg[['Price_Close']]*growth_factor
+    avg['next_year'] = avg.index + 1
+    avg = avg.loc[:,['next_year_price','next_year']]
+    avg = avg.rename(columns = {'next_year': 'year'})
+    #prices = prices.join(avg, on='year')
+    prices = prices.merge(avg.reset_index(drop=True), on='year', how='left').dropna()
+    #avg.merge(avg_yearly_growth, left_index=True, right_index=True)
+    avg_pct_err = calc_average_pct_error(
+            np.array(prices[['Price_Close']]),
+            np.array(prices[['next_year_price']]))
+    
+    return prices, avg_pct_err
 
+    
 def evaluate_model(model, train, test, n_input, n_out, max_price, min_price):
     '''
     Evaluate model.
@@ -448,6 +481,8 @@ def summary_of_results(dataset_name ,score, pred, actual):
     print('Average percent error: {} \t\t'.format(avg_pct_err))
     print('---------------------------')
     print('\n\n')
+    
+    return avg_pct_err
 
 
 def combine_pred_and_actual_results(dates, pred, actual):
@@ -470,58 +505,100 @@ def combine_pred_and_actual_results(dates, pred, actual):
                        'test_actual': actual.flatten()[:num_dates]}
     return pd.DataFrame(comparison)  
 
+
+def run_everything(df_data):
+    '''
+    Builds models, tests models, and gets final predicted results.
+    
+    Args:
+        df_data: All data for a given instrument (ticker).
+    
+    Return:
+        Dataframe which contains all final results.
+    '''
+    max_price = df_data[['Price_Close']].max()[0]
+    min_price = df_data[['Price_Close']].min()[0]
+    
+    df_model_data = clean_up_input_data(df_data)
+    
+    
+    (train, test, val), (train_dates,test_dates,val_dates) = \
+      split_to_train_val_test_sets(df_model_data)
+    
+    # Set the window size for prediction (and by default input to LSTM as well).
+    window = 360
+    output_window = 90
+    
+    # Build model on training data.
+    print('Building model on training data')
+    training_model = build_model(train, window, output_window)
+    
+    # Get model performance on training dataset.
+    test_score, test_scores, test_pred, test_actual = evaluate_model(
+            training_model,train, test, window, output_window,
+            max_price, min_price)
+    
+    # Get summary of results on test set.
+    test_pct_err = summary_of_results('test', test_score, test_pred, test_actual)
+    
+    # Build model on training and test data (to predict validation data).
+    print('Retraining model on training and test sets combined')
+    train_test = np.concatenate((train,test))
+    validation_model = build_model(train_test, window, output_window)
+    
+    # Get model performance on validation dataset.
+    val_score, val_scores, val_pred, val_actual = evaluate_model(
+            validation_model, train_test, val, window, output_window,
+            max_price, min_price)
+    val_pct_err = summary_of_results('validation', val_score, val_pred, val_actual)
+    
+    # Make future predictions, using validation set.
+    print('Building model on full dataset to make final predictions')
+    full_dataset = np.concatenate((train,test,val))
+    prediction_model = build_model(full_dataset, window, output_window)
+    pred_results = predict_future_results(prediction_model,full_dataset,window,
+                                          max_price, min_price)
+    
+    # Make the final predicted price, the average price predicted for the last
+    # 45 days.
+    pred_price = pred_results[-45:].mean()
+    
+    # Make potential upside pred_price/ average 10 day price.
+    potential_upside = 100*(
+            (pred_price - df_data[['Price_Close']].iloc[-10:,0].mean())\
+            /df_data[['Price_Close']].iloc[-10:,0].mean())
+    
+    # Combine results with the date they are for
+    test_results_combined = combine_pred_and_actual_results(test_dates, test_pred,
+                                                          test_actual)
+    validation_results_combined = combine_pred_and_actual_results(val_dates,
+                                                                  val_pred,
+                                                                  val_actual)
+    
+    # Get pct err results of simple model (year over year growth).
+    _, simple_pct_err = year_over_year_model(df_model_data)
+    
+    # Combined results for everything.
+    d = {'Instrument': df_data.loc[0,['Instrument']][0],
+         'training_pct_err':  test_pct_err,
+         'val_pct_err': val_pct_err,
+         'simple_model_pct_err': simple_pct_err,
+         'training_RMSE_sum': test_score,
+         'test_RMSE_sum': val_score,
+         'future_predicted_price': pred_price,
+         'potential_upside': potential_upside}
+    
+    final_model_results = pd.DataFrame(d)
+    print(final_model_results)
+    return final_model_results
+    
+    
+    # TODO: Save the model weights somewhere.
+
+
+# Get data for 1 ticker. 
 df_data = pd.read_csv('/Users/paindox/Documents/Sixth Year/SENG 550/TMP/facebook_tech_and_fund_data.csv')
-max_price = df_data[['Price_Close']].max()[0]
-min_price = df_data[['Price_Close']].min()[0]
 
-df_model_data = clean_up_input_data(df_data)
+final_model_results = run_everything(df_data)
 
-
-(train, test, val), (train_dates,test_dates,val_dates) = \
-  split_to_train_val_test_sets(df_model_data)
-
-# Set the window size for prediction (and by default input to LSTM as well).
-window = 360
-output_window = 90
-
-# Build model on training data.
-print('Building model on training data')
-training_model = build_model(train, window, output_window)
-
-# Get model performance on training dataset.
-test_score, test_scores, test_pred, test_actual = evaluate_model(
-        training_model,train, test, window, output_window,
-        max_price, min_price)
-
-# Get summary of results on test set.
-summary_of_results('test', test_score, test_pred, test_actual)
-
-# Build model on training and test data (to predict validation data).
-print('Retraining model on training and test sets combined')
-train_test = np.concatenate((train,test))
-validation_model = build_model(train_test, window, output_window)
-
-# Get model performance on validation dataset.
-val_score, val_scores, val_pred, val_actual = evaluate_model(
-        validation_model, train_test, val, window, output_window,
-        max_price, min_price)
-summary_of_results('validation', val_score, val_pred, val_actual)
-
-# Make future predictions, using validation set.
-print('Building model on full dataset to make final predictions')
-full_dataset = np.concatenate((train,test,val))
-prediction_model = build_model(full_dataset, window, output_window)
-pred_results = predict_future_results(prediction_model,full_dataset,window,
-                                      max_price, min_price)
-
-
-
-
-# Combine results with the date they are for
-test_results_combined = combine_pred_and_actual_results(test_dates, test_pred,
-                                                      test_actual)
-validation_results_combined = combine_pred_and_actual_results(val_dates,
-                                                              val_pred,
-                                                              val_actual)
-
-# TODO: Save the model weights somewhere.
+# TODO: store final_model_results for ticker.
