@@ -1,6 +1,8 @@
 #!/bin/bash
 # ./create_cluster.bash [cluster-name]
 # ./create_cluster.bash seng550
+# https://cloud.google.com/compute/docs/machine-types#custom_machine_types
+# https://spark.apache.org/docs/latest/configuration.html
 
 NAME=$1
 
@@ -12,11 +14,11 @@ gcloud dataproc clusters create ${NAME} \
   --image-version=1.4 \
   --optional-components=ANACONDA,JUPYTER \
   --num-masters=1 \
-  --num-workers=5 \
-  --master-machine-type=n1-highmem-4 \
+  --num-workers=2 \
+  --master-machine-type=n1-highmem-8 \
   --master-boot-disk-type=pd-ssd \
   --master-boot-disk-size=100GB \
-  --worker-machine-type=n1-highmem-4 \
+  --worker-machine-type=n1-highmem-8 \
   --worker-boot-disk-size=80GB \
   --worker-boot-disk-type=pd-ssd \
   --initialization-actions gs://dataproc-initialization-actions/python/conda-install.sh,gs://dataproc-initialization-actions/python/pip-install.sh \

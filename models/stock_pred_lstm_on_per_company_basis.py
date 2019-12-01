@@ -18,21 +18,23 @@ An LSTM model with walk-forward validation is used.
 #from keras.layers import LSTM
 #from keras.layers import RepeatVector
 #from keras.layers import TimeDistributed
+#from matplotlib import pyplot
+#from tensorflow.keras import models
+#from tensorflow.keras.models import Sequential
+#from tensorflow.keras.layers import Dense
+#from tensorflow.keras.layers import Flatten
+#from tensorflow.keras.layers import LSTM
 
 from pyspark.sql import SparkSession
 from math import ceil
 import numpy as np
 import pandas as pd
-from collections import deque
-
-from matplotlib import pyplot
+from pyspark.sql.types import StructType, StructField, StringType, FloatType
 import tensorflow as tf
-#from tensorflow.keras import models
-'''from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense
-from tensorflow.keras.layers import Flatten
-from tensorflow.keras.layers import LSTM
-'''
+import time
+from datetime import timedelta
+
+
 Sequential = tf.keras.models.Sequential
 Dense = tf.keras.layers.Dense
 Flatten = tf.keras.layers.Flatten
@@ -64,7 +66,9 @@ spark = SparkSession \
     .builder \
     .master('yarn') \
     .appName('parallel_lstm') \
-    .config('spark.executor.cores', '2') \
+    .config('spark.executor.cores', '8') \
+    .config('spark.executor.memory', '18535m') \
+    .config('spark.logConf', True) \
     .getOrCreate()
 
 bucket = spark.sparkContext._jsc.hadoopConfiguration().get('fs.gs.system.bucket')
@@ -75,6 +79,9 @@ sparkContext = spark.sparkContext
 # Read the combined table
 combined_df = spark.read.format('bigquery').option('table', '{}.{}'.format(BQ_PREFIX, COMBINED_TABLE)).load().cache()
 combined_df.createOrReplaceTempView(COMBINED_TABLE)
+
+EPOCHS = 1
+
 
 def minMaxScaler(pd_col):
     '''
@@ -346,7 +353,7 @@ def build_model(train, n_input, n_out = 180):
     # Prepare data.
     train_x, train_y = get_daily_increment_windows(train, n_input, n_out)
     # Define parameters.
-    verbose, epochs, batch_size = 1, 30, 128
+    verbose, epochs, batch_size = 1, EPOCHS, 128
     n_timesteps = train_x.shape[1]
     n_features = train_x.shape[2]
     n_outputs = train_y.shape[1]
@@ -629,38 +636,56 @@ def run_everything(df_data):
 # TODO: store final_model_results for ticker.
 
 
-MAX_COMPANIES = 20
-
-# Pick [MAX_COMPANIES] number of random companies
-uniques_companies = combined_df.select('Instrument').distinct().collect()[:MAX_COMPANIES]
-company_list = list(map(lambda x: x.__getitem__('Instrument'), uniques_companies))
-
-FB = 'FB.O'
-GOOGLE = 'GOOGL.O'
-
-# Add Facebook and Google
-if FB not in company_list:
-    company_list.append(FB)
-if GOOGLE not in company_list:
-    company_list.append(GOOGLE)
-
+company_list = ['FB.O', 'GOOGL.O', 'AAPL.O', 'AMZN.O', 'NFLX.O', 'TSLA.O']
 companies_len = len(company_list)
-print('Using {} companies: {}'.format(companies_len, ' '.join(company_list)))
+print('Using {} epoch(s) and {} companies: {}\n'.format(EPOCHS, companies_len, ' '.join(company_list)))
 
 companies_data = []
-# Get data for 5 companies at a time and store it to be used later
-# Make models for the 5 companies in parallel since we have 5 workers
+final_outputs = []
+
+
+def run_map(map_data):
+    first = time.time()
+    outputs = sparkContext.parallelize(map_data).map(lambda df_data: run_everything(df_data)).collect()
+    second = time.time()
+    diff = second - first
+
+    print('Map tasks took {}\n'.format(timedelta(seconds=diff)))
+    return outputs
+
+
+# Get data for 2 companies at a time and store it to be used later
+# Make models for the 2 companies in parallel since we have 2 workers
 # Pretty hacky but you can't access the sparkContext from the workers so the data must be collected at the driver level
 for index, company_name in enumerate(company_list):
-    if index % 5 == 0:
-        outputs = sparkContext.parallelize(companies_data).map(lambda df_data: run_everything(df_data)).collect()
+    if index % 2 == 0 and index != 0:
+        final_outputs = final_outputs + run_map(companies_data)
         companies_data = []
 
-    print('Collecting data for {} (#{} out of {})'.format(company_name, index + 1, companies_len))
     data_query = 'SELECT * FROM {} WHERE Instrument="{}"'.format(COMBINED_TABLE, company_name)
     data = spark.sql(data_query)
-    companies_data.append(data.toPandas())
+    print('#{}: Collected data for {}, {} rows'.format(index + 1, company_name, data.count()))
+    if data.count() > 0:
+        companies_data.append(data.toPandas())
 
     if index == companies_len - 1:
-        outputs = sparkContext.parallelize(companies_data).map(lambda df_data: run_everything(df_data)).collect()
+        final_outputs = final_outputs + run_map(companies_data)
         companies_data = []
+
+
+combined_output = pd.concat(final_outputs, ignore_index=True)
+schema = StructType([
+    StructField('Instrument', StringType(), True),
+    StructField('training_pct_err', FloatType(), True),
+    StructField('val_pct_err', FloatType(), True),
+    StructField('simple_model_pct_err', FloatType(), True),
+    StructField('training_RMSE_sum', FloatType(), True),
+    StructField('test_RMSE_sum', FloatType(), True),
+    StructField('future_predicted_price', FloatType(), True),
+    StructField('potential_upside', FloatType(), True)
+])
+
+print('Writing to csv')
+OUTPUT_LOCATION = 'gs://seng550/lstm_outputs/'
+spark_df = spark.createDataFrame(combined_output, schema=schema)
+spark_df.coalesce(1).write.mode('overwrite').option('header', 'true').csv(OUTPUT_LOCATION + '{}epochs-{}companies-'.format(EPOCHS, ','.join(company_list)))
