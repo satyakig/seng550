@@ -5,9 +5,16 @@ from pyspark.sql import SparkSession
 #import systemml
 import numpy as np
 from sklearn.utils import shuffle
+from sklearn.metrics import r2_score
+from sklearn.preprocessing import StandardScaler
 from pyspark.ml.feature import VectorAssembler
 from keras import models
 from keras import layers
+from keras import optimizers
+
+# TODO: Add automatic parameter tuning
+# TODO: Add dropout layers
+# TODO: Add regularization errors
 
 # Constants
 DATABASE = "seng-550.seng_550_data"
@@ -47,7 +54,7 @@ def load_train_test_split(shuffle_data=True):
     train_df = vector_assembler.transform(training_data)
     train_features = np.array(train_df.select('features').collect()).reshape(-1, len(num_features))
     train_labels = np.array(train_df.select(TARGET).collect()).reshape(-1)
-    print("Training set has size {} for X and size {} for y".format(X_train.shape, y_train.shape))
+    print("Training set has size {} for X and size {} for y".format(train_features.shape, train_labels.shape))
     # train_df.show()
 
     # Testing: 2018 - now
@@ -58,23 +65,33 @@ def load_train_test_split(shuffle_data=True):
     test_df = vector_assembler.transform(test_data)
     test_features = np.array(test_df.select('features').collect()).reshape(-1, len(num_features))
     test_labels = np.array(test_df.select(TARGET).collect()).reshape(-1)
-    print("Test set has size {} for X and size {} for y".format(X_test.shape, y_test.shape))
+    print("Test set has size {} for X and size {} for y".format(test_features.shape, test_labels.shape))
     # test_df.show()
 
-    # Shuffle all of the data ?
-    if shuffle_data is True:
-        shuffle(train_features, train_labels, test_features, test_labels)
+    scaler = StandardScaler(copy=False)
+    scaler.fit(train_features)
 
-    return train_features, train_labels, test_features, test_labels
+    print(test_features[0])
+    scaler.transform(train_features)
+    scaler.transform(test_features)
+    print(test_features[1])
+    # # Shuffle all of the data ?
+    if shuffle_data is True:
+        shuffled_training = shuffle(train_features, train_labels)
+        train_features, train_labels = shuffled_training[0], shuffled_training[1]
+        shuffled_test = shuffle(test_features, test_labels)
+        test_features, test_labels = shuffled_test[0], shuffled_test[1]
+
+    return train_features, test_features, train_labels, test_labels
 
 
 def create_model(features):
-
+    sgd = optimizers.Adam(lr=0.1)
     model = models.Sequential()
     model.add(layers.Dense(256, activation="relu", input_shape=(features.shape[1],)))
     model.add(layers.Dense(256, activation="relu"))
     model.add(layers.Dense(1))
-    model.compile(optimizer="rmsprop", loss="mse", metrics=["mae"])
+    model.compile(optimizer=sgd, loss="mean_squared_error", metrics=["mae"])
     model.summary()
 
     return model
@@ -82,13 +99,19 @@ def create_model(features):
 
 # ------------- Driver ------------------------------------
 X_train, X_test, y_train, y_test = load_train_test_split(shuffle_data=True)
-
 model = create_model(X_train)
 model.fit(X_train,
           y_train,
-          epochs=10,
-          batch_size=256,
+          epochs=40,
+          batch_size=128,
           verbose=1,
           validation_data=(X_test, y_test))
 
 # Evaluate the models R2 score here
+prediction = model.predict(X_test).reshape(-1,)
+print(y_test.shape)
+print(y_test)
+print(prediction.shape)
+print(prediction)
+r2 = r2_score(y_test, prediction)
+print("r2 score is {}".format(r2))
