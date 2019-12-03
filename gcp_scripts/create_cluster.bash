@@ -25,4 +25,4 @@ gcloud dataproc clusters create ${NAME} \
   --preemptible-worker-accelerator type=nvidia-tesla-k80,count=4 \
   --initialization-actions gs://dataproc-initialization-actions/python/conda-install.sh,gs://dataproc-initialization-actions/python/pip-install.sh,gs://seng550/bash_scripts/install_gpu_driver.bash \
   --metadata 'CONDA_PACKAGES=tensorflow keras' \
-  --metadata 'PIP_PACKAGES=numpy==1.17.3 pandas==0.25.3 scipy==1.3.2 elephas systemml sklearn'
+  --metadata 'PIP_PACKAGES=numpy==1.17.3 pandas==0.25.3 scipy==1.3.2 elephas systemml sklearn talos prompt_toolkit'

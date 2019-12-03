@@ -2,24 +2,31 @@
 Run:  bash ../gcp_scripts/run_cluster.bash ./Dense_Neural_Net.py james-cluster us-central1
 """
 from pyspark.sql import SparkSession
-#import systemml
+import systemml
 import numpy as np
 from sklearn.utils import shuffle
 from sklearn.metrics import r2_score
-from sklearn.preprocessing import StandardScaler
+from pyspark.sql.functions import col
+from pyspark.ml.feature import StandardScaler
 from pyspark.ml.feature import VectorAssembler
 from keras import models
-from keras import layers
+from keras.layers import Dense, Dropout
 from keras import optimizers
+import talos as ta
+from talos.model.normalizers import lr_normalizer
+from talos.model.hidden_layers import hidden_layers
+from elephas.utils.rdd_utils import to_simple_rdd
+from elephas.spark_model import SparkModel
 
-# TODO: Add automatic parameter tuning
-# TODO: Add dropout layers
-# TODO: Add regularization errors
+# TODO: Add distributed training using Elephas
 
 # Constants
 DATABASE = "seng-550.seng_550_data"
 TABLE = "combined_technicals_fundamentals"
 TARGET = "Price_Close"
+RESULTS_TABLE_NAME = "DNN_Model_Results"
+columns_to_drop = ["Instrument", "Date", "Company_Common_Name", "TRBC_Economic_Sector_Name",
+                   "Country_of_Headquarters", "Exchange_Name", "Year"]
 
 # Create the Spark Session on this node
 spark = SparkSession \
@@ -36,88 +43,151 @@ bucket = spark.sparkContext._jsc.hadoopConfiguration().get('fs.gs.system.bucket'
 spark.conf.set('temporaryGcsBucket', bucket)
 
 
-def load_train_test_split(shuffle_data=True):
+def load_data():
+    """
+    This function pulls the training and test data from big query
+
+    :return: Train and Test data
+    """
     # Load data from Big Query
     combined_data = spark.read.format('bigquery').option('table', "{}.{}".format(DATABASE, TABLE)).load().cache()
     combined_data.createOrReplaceTempView('combined_data')
 
-    # Training: Start - 2017 rows
+    # Start - 2017 rows
     training_data = spark.sql(
         'SELECT * FROM combined_data WHERE Instrument="FB.O" AND Year < 2018'
     )
     training_data = training_data.na.fill(0)
-    types = [(f.name, f.dataType) for f in training_data.schema.fields]
-    cat_features = []
-    num_features = []
-    for i in types:
-        if str(i[1]) in ["LongType", "DoubleType"]:
-            num_features.append(i[0])
-        else:
-            cat_features.append(i[0])
 
-    # initialize VectorAssembler
-    vector_assembler = VectorAssembler(inputCols=num_features, outputCol='features')
-    train_df = vector_assembler.transform(training_data)
-    train_features = np.array(train_df.select('features').collect()).reshape(-1, len(num_features))
-    train_labels = np.array(train_df.select(TARGET).collect()).reshape(-1)
-    print("Training set has size {} for X and size {} for y".format(train_features.shape, train_labels.shape))
-    # train_df.show()
-
-    # Testing: 2018 - now
+    # 2018 - now
     test_data = spark.sql(
         'SELECT * FROM combined_data WHERE Instrument="FB.O" AND Year >= 2018'
     )
     test_data = test_data.na.fill(0)
+
+    return training_data, test_data
+
+
+def preprocess_data(training_data, test_data):
+    """
+    This function will pre-process data by dropping the rows we specify and one-hot encoding all categorical data
+    :return:
+    """
+    # Drop columns that we don't want
+    train_data = training_data.drop(*columns_to_drop)
+    test_data = test_data.drop(*columns_to_drop)
+
+    # One-hot encode each column
+
+    # Convert each column to a float
+    for col_name in train_data.columns:
+        train_data = train_data.withColumn(col_name, col(col_name).cast('float'))
+    for col_name in test_data.columns:
+        test_data = test_data.withColumn(col_name, col(col_name).cast('float'))
+
+    return train_data, test_data
+
+
+def vectorize_data(training_data, test_data):
+    # Assemble the vectors
+    vector_assembler = VectorAssembler(inputCols=training_data.columns, outputCol='features')
+    train_df = vector_assembler.transform(training_data)
     test_df = vector_assembler.transform(test_data)
-    test_features = np.array(test_df.select('features').collect()).reshape(-1, len(num_features))
-    test_labels = np.array(test_df.select(TARGET).collect()).reshape(-1)
-    print("Test set has size {} for X and size {} for y".format(test_features.shape, test_labels.shape))
-    # test_df.show()
 
-    scaler = StandardScaler(copy=False)
-    scaler.fit(train_features)
+    # Normalize the data using Scalar
+    scalar = StandardScaler(inputCol="features", outputCol="scaledFeatures", withStd=True, withMean=True).fit(train_df)
+    train_df = scalar.transform(train_df)
+    test_df = scalar.transform(test_df)
 
-    print(test_features[0])
-    scaler.transform(train_features)
-    scaler.transform(test_features)
-    print(test_features[1])
-    # # Shuffle all of the data ?
-    if shuffle_data is True:
-        shuffled_training = shuffle(train_features, train_labels)
-        train_features, train_labels = shuffled_training[0], shuffled_training[1]
-        shuffled_test = shuffle(test_features, test_labels)
-        test_features, test_labels = shuffled_test[0], shuffled_test[1]
+    # Select the rows needed
+    train_df = train_df.select(['scaledFeatures', TARGET])
+    test_df = test_df.select(['scaledFeatures', TARGET])
 
-    return train_features, test_features, train_labels, test_labels
+    return train_df, test_df
 
 
-def create_model(features):
-    sgd = optimizers.Adam(lr=0.1)
+def create_model(x, y, x_val, y_val, params):
+
     model = models.Sequential()
-    model.add(layers.Dense(256, activation="relu", input_shape=(features.shape[1],)))
-    model.add(layers.Dense(256, activation="relu"))
-    model.add(layers.Dense(1))
-    model.compile(optimizer=sgd, loss="mean_squared_error", metrics=["mae"])
+
+    # Input Layer
+    sgd = optimizers.Adam(lr=params['lr'])
+    model.add(Dense(params["first_neuron"], activation="relu", input_shape=(x.shape[1],)))
+    model.add(Dropout(params['dropout']))
+
+    # Hidden layers
+    hidden_layers(model, params, 1)
+
+    # output layer
+    model.add(Dense(1))
+    model.compile(optimizer=sgd, loss="mse", metrics=["mse"])
+    # model.summary()
+
+    history = model.fit(x,
+                        y,
+                        epochs=params['epochs'],
+                        batch_size=params['batch_size'],
+                        verbose=0,
+                        validation_data=(x_val, y_val))
+
+    return history, model
+
+
+def train_elephas_model(x_train, y_train):
+
+    model = models.Sequential()
+
+    # Input Layer
+    sgd = optimizers.Adam(lr=0.1)
+    model.add(Dense(128, activation="relu", input_shape=(x_train.shape[1],)))
+    model.add(Dropout(0.1))
+
+    # Hidden Layer
+    model.add(Dense(128, activation="relu"))
+    model.add(Dropout(0.1))
+
+    # output layer
+    model.add(Dense(1))
+    model.compile(optimizer=sgd, loss="mse", metrics=["mse"])
     model.summary()
 
-    return model
+    rdd = to_simple_rdd(sc, x_train, y_train)
+    spark_model = SparkModel(model, frequency='epoch', mode='asynchronous')
+    spark_model.fit(rdd, epochs=20, batch_size=32, verbose=0, validation_split=0.1)
 
 
-# ------------- Driver ------------------------------------
-X_train, X_test, y_train, y_test = load_train_test_split(shuffle_data=True)
-model = create_model(X_train)
-model.fit(X_train,
-          y_train,
-          epochs=40,
-          batch_size=128,
-          verbose=1,
-          validation_data=(X_test, y_test))
+# ------------- Driver ------------------------------------------------------
+train, test = load_data()
+train, test = preprocess_data(train, test)
+train, test = vectorize_data(train, test)
+train = train.toPandas()
+test = test.toPandas()
 
-# Evaluate the models R2 score here
-prediction = model.predict(X_test).reshape(-1,)
-print(y_test.shape)
-print(y_test)
-print(prediction.shape)
-print(prediction)
-r2 = r2_score(y_test, prediction)
-print("r2 score is {}".format(r2))
+# Training set
+X_train = np.array(list(map(lambda x: x.toArray(), train["scaledFeatures"].values)))
+y_train = train[TARGET].values
+# Test set
+X_test = np.array(list(map(lambda x: x.toArray(), test["scaledFeatures"].values)))
+y_test = test[TARGET].values
+
+dnn_params = {'lr': [0.01, 0.05, 1],
+              'first_neuron': [64, 128, 256],
+              'activation': ['relu'],
+              'hidden_layers': [1, 2, 3],
+              'batch_size': [32, 64, 128],
+              'epochs': [10, 15, 25],
+              'dropout': [0.01, 0.05, 0.1],
+              'shapes': ['brick']}
+
+# Train the model
+dnn_model = ta.Scan(
+    x=X_train,
+    y=y_train,
+    model=create_model,
+    params=dnn_params,
+    experiment_name="fb_stock"
+)
+
+results_df = dnn_model.data
+results_df = spark.createDataFrame(results_df)
+results_df.write.format('bigquery').option('table', 'seng-550.seng_550_data.{}'.format(RESULTS_TABLE_NAME)).mode('overwrite').save()
