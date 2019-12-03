@@ -66,8 +66,8 @@ spark = SparkSession \
     .builder \
     .master('yarn') \
     .appName('lstm') \
-    .config('spark.executor.cores', '16') \
-    .config('spark.executor.memory', '71680m') \
+    .config('spark.executor.cores', '8') \
+    .config('spark.executor.memory', '35840m') \
     .config('spark.executorEnv.LD_PRELOAD', 'libnvblas.so') \
     .getOrCreate()
 
@@ -80,7 +80,7 @@ sparkContext = spark.sparkContext
 combined_df = spark.read.format('bigquery').option('table', '{}.{}'.format(BQ_PREFIX, COMBINED_TABLE)).load().cache()
 combined_df.createOrReplaceTempView(COMBINED_TABLE)
 
-EPOCHS = 20
+EPOCHS = 1
 
 
 def minMaxScaler(pd_col):
@@ -636,9 +636,19 @@ def run_everything(df_data):
 # TODO: store final_model_results for ticker.
 
 
-# company_list = ['FSZ.TO', 'EZPW.O'] # top 2 companies with most rows
-company_list = ['FB.O', 'GOOGL.O', 'AAPL.O', 'AMZN.O', 'NFLX.O', 'TSLA.O']
-# company_list = ['AAPL.O', 'NFLX.O']
+company_list = [
+    'FB.O',
+    'GOOGL.O',
+    'AAPL.O',
+    'AMZN.O',
+    'NFLX.O',
+    'TSLA.O',
+    'MSFT.O',
+    'PYPL.O',
+    'AMD.O',
+    'INTC.O',
+    'NVDA.O',
+]
 companies_len = len(company_list)
 print('Using {} epoch(s) and {} companies: {}\n'.format(EPOCHS, companies_len, ' '.join(company_list)))
 
@@ -656,26 +666,25 @@ def run_map(map_data):
     return outputs
 
 
-# Get data for 2 companies at a time and store it to be used later
-# Make models for the 2 companies in parallel since we have 2 workers
-# Pretty hacky but you can't access the sparkContext from the workers so the data must be collected at the driver level
+NUM_MAPS = 8
+# You can't access the sparkContext from the workers so the data must be collected at the driver level
 for index, company_name in enumerate(company_list):
-    # if index % 2 == 0 and index != 0:
-    #     final_outputs = final_outputs + run_map(companies_data)
-    #     companies_data = []
+    if index % NUM_MAPS == 0 and index != 0 and len(companies_data) > 0:
+        final_outputs = final_outputs + run_map(companies_data)
+        companies_data = []
 
     data_query = 'SELECT * FROM {} WHERE Instrument="{}"'.format(COMBINED_TABLE, company_name)
     data = spark.sql(data_query)
     print('#{}: Collected data for {}, {} rows'.format(index + 1, company_name, data.count()))
     if data.count() > 0:
         companies_data.append(data.toPandas())
-    #
-    # if index == companies_len - 1:
-    #     final_outputs = final_outputs + run_map(companies_data)
-    #     companies_data = []
+
+    if index == companies_len - 1 and len(companies_data) > 0:
+        final_outputs = final_outputs + run_map(companies_data)
+        companies_data = []
 
 
-final_outputs = run_map(companies_data)
+# final_outputs = run_map(companies_data)
 combined_output = pd.concat(final_outputs, ignore_index=True)
 schema = StructType([
     StructField('Instrument', StringType(), True),
