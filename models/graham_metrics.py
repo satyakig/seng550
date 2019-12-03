@@ -11,7 +11,14 @@ FUND_TABLE = 'fundamentals_cleaned'
 TECH_TABLE = 'technicals_cleaned'
 
 # Create the Spark Session on this node
-spark = SparkSession.builder.master('yarn').appName('graham_metrics').getOrCreate()
+spark = SparkSession \
+    .builder \
+    .master('yarn') \
+    .appName('graham_metrics') \
+    .config('spark.executor.cores', '16') \
+    .config('spark.executor.memory', '71680m') \
+    .config('spark.executorEnv.LD_PRELOAD', 'libnvblas.so') \
+    .getOrCreate()
 
 # Use the Cloud Storage bucket for temporary BigQuery export data used
 # by the connector. This assumes the Cloud Storage connector for

@@ -20,14 +20,19 @@ DATABASE = 'seng-550.seng_550_data'
 FUND_TABLE = 'fundamentals_cleaned'
 
 # Create the Spark Session on this node
-spark = SparkSession.builder.master('yarn').appName(
-    'k_means_fundamentals').getOrCreate()
+spark = SparkSession \
+    .builder \
+    .master('yarn') \
+    .appName('k_means_fundamentals') \
+    .config('spark.executor.cores', '16') \
+    .config('spark.executor.memory', '71680m') \
+    .config('spark.executorEnv.LD_PRELOAD', 'libnvblas.so') \
+    .getOrCreate()
 
 # Use the Cloud Storage bucket for temporary BigQuery export data used
 # by the connector. This assumes the Cloud Storage connector for
 # Hadoop is configured.
-bucket = spark.sparkContext._jsc.hadoopConfiguration().get(
-    'fs.gs.system.bucket')
+bucket = spark.sparkContext._jsc.hadoopConfiguration().get('fs.gs.system.bucket')
 spark.conf.set('temporaryGcsBucket', bucket)
 
 # Load data from Big Query

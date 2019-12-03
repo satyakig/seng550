@@ -22,8 +22,14 @@ TABLE = "combined_technicals_fundamentals"
 TARGET = "Price_Close"
 
 # Create the Spark Session on this node
-spark = SparkSession.builder.master('yarn').appName(
-    'combined_fund').getOrCreate()
+spark = SparkSession \
+  .builder \
+  .master('yarn') \
+  .appName('dnn') \
+  .config('spark.executor.cores', '16') \
+  .config('spark.executor.memory', '71680m') \
+  .config('spark.executorEnv.LD_PRELOAD', 'libnvblas.so') \
+  .getOrCreate()
 
 # Create a temporary bucket
 bucket = spark.sparkContext._jsc.hadoopConfiguration().get('fs.gs.system.bucket')

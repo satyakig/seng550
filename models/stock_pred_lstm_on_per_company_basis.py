@@ -65,6 +65,7 @@ COMBINED_TABLE = 'combined_technicals_fundamentals'
 spark = SparkSession \
     .builder \
     .master('yarn') \
+    .appName('lstm') \
     .config('spark.executor.cores', '16') \
     .config('spark.executor.memory', '71680m') \
     .config('spark.executorEnv.LD_PRELOAD', 'libnvblas.so') \

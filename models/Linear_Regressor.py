@@ -19,8 +19,15 @@ columns_to_drop = ["Instrument", "Date", "Company_Common_Name", "TRBC_Economic_S
                    "Country_of_Headquarters", "Exchange_Name", "Year"]
 
 # Create the Spark Session on this node
-spark = SparkSession.builder.master('yarn').appName(
-    'combined_fund').getOrCreate()
+spark = SparkSession \
+    .builder \
+    .master('yarn') \
+    .appName('lr') \
+    .config('spark.executor.cores', '16') \
+    .config('spark.executor.memory', '71680m') \
+    .config('spark.executorEnv.LD_PRELOAD', 'libnvblas.so') \
+    .getOrCreate()
+
 bucket = spark.sparkContext._jsc.hadoopConfiguration().get('fs.gs.system.bucket')
 spark.conf.set('temporaryGcsBucket', bucket)
 
