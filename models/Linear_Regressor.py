@@ -74,11 +74,11 @@ def load_data(tech_only=False):
 
     else:
         # Start - 2017 rows
-        query = 'SELECT * FROM {} WHERE Year == {} AND Instrument="FB.O"'.format(VIEW_NAME, end_year)
+        query = 'SELECT * FROM {} WHERE Year < {}'.format(VIEW_NAME, end_year)
         training_data = spark.sql(query)
 
         # 2018 - now
-        query = 'SELECT * FROM {} WHERE Year > {} AND Instrument="FB.O"'.format(VIEW_NAME, end_year)
+        query = 'SELECT * FROM {} WHERE Year >= {}'.format(VIEW_NAME, end_year)
         test_data = spark.sql(query)
 
     return training_data, test_data
