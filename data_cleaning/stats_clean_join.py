@@ -68,7 +68,15 @@ FUNDAMENTALS = 'fundamentals'
 
 # Setup the PySpark session
 # spark = SparkSession.builder.master('local').appName('stats_clean_join').getOrCreate() # Local run spark session
-spark = SparkSession.builder.master('yarn').appName('stats_clean_join').getOrCreate()
+spark = SparkSession \
+        .builder \
+        .master('yarn') \
+        .appName('stats_clean_join') \
+        .config('spark.executor.cores', '16') \
+        .config('spark.executor.memory', '71680m') \
+        .config('spark.executorEnv.LD_PRELOAD', 'libnvblas.so') \
+        .getOrCreate()
+
 bucket = spark.sparkContext._jsc.hadoopConfiguration().get('fs.gs.system.bucket')
 spark.conf.set('temporaryGcsBucket', bucket)
 
