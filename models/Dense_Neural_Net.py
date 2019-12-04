@@ -9,7 +9,6 @@ from pyspark.ml.feature import VectorAssembler
 from keras import models
 from keras.layers import Dense, Dropout
 from keras import optimizers
-from talos.model.hidden_layers import hidden_layers
 from elephas.utils.rdd_utils import to_simple_rdd
 from elephas.spark_model import SparkModel
 from sklearn.metrics import mean_squared_error
@@ -140,7 +139,7 @@ def to_numpy_array(train_array, test_array):
 
     # Training set
     train_features = np.array(list(map(lambda x: x.toArray(), train_array["scaledFeatures"].values)))
-    train_labels = train[TARGET].values
+    train_labels = train_array[TARGET].values
 
     new_test_data = dict()
     for company in test_array:
@@ -158,12 +157,11 @@ def train_elephas_model(x, y):
 
     # Input Layer
     sgd = optimizers.Adam(lr=0.01)
-    model.add(Dense(128, activation="relu", input_shape=(x.shape[1],)))
-    model.add(Dropout(0.1))
+    model.add(Dense(256, activation="relu", input_shape=(x.shape[1],)))
+    model.add(Dropout(0.05))
 
-    # Hidden Layer
-    model.add(Dense(128, activation="relu"))
-    model.add(Dropout(0.1))
+    model.add(Dense(256, activation="relu", input_shape=(x.shape[1],)))
+    model.add(Dropout(0.05))
 
     # output layer
     model.add(Dense(1))
@@ -172,6 +170,7 @@ def train_elephas_model(x, y):
 
     rdd = to_simple_rdd(sc, x, y)
     spark_model = SparkModel(model, frequency='epoch', mode='asynchronous')
+    # spark_model.fit(rdd, epochs=10, batch_size=64, verbose=1, validation_split=0.2)
     spark_model.fit(rdd, epochs=25, batch_size=64, verbose=1, validation_split=0.2)
 
     return spark_model
@@ -201,18 +200,18 @@ def train_and_pred(train_features, train_labels, test_data):
 
 df_arr = []
 
-print("_____________________Training on all companies____________________________")
-
-train, test = load_data()
-train, test = preprocess_data(train, test)
-train, test = vectorize_data(train, test)
-X_train, y_train, test = to_numpy_array(train, test)
-predictions = train_and_pred(X_train, y_train, test)
-
-print("_____________________Moving onto sector training____________________________")
+print("_____________________Train on tech sector____________________________")
 
 train, test = load_data(True)
 train, test = preprocess_data(train, test)
 train, test = vectorize_data(train, test)
 X_train, y_train, test = to_numpy_array(train, test)
 predictions = train_and_pred(X_train, y_train, test)
+
+print("_____________________Training on all companies____________________________")
+
+# train, test = load_data()
+# train, test = preprocess_data(train, test)
+# train, test = vectorize_data(train, test)
+# X_train, y_train, test = to_numpy_array(train, test)
+# predictions = train_and_pred(X_train, y_train, test)
