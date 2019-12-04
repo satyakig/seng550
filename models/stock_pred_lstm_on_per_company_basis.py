@@ -66,8 +66,8 @@ spark = SparkSession \
     .builder \
     .master('yarn') \
     .appName('lstm') \
-    .config('spark.executor.cores', '8') \
-    .config('spark.executor.memory', '35840m') \
+    .config('spark.executor.cores', '10') \
+    .config('spark.executor.memory', '71680m') \
     .config('spark.executorEnv.LD_PRELOAD', 'libnvblas.so') \
     .getOrCreate()
 
@@ -80,7 +80,7 @@ sparkContext = spark.sparkContext
 combined_df = spark.read.format('bigquery').option('table', '{}.{}'.format(BQ_PREFIX, COMBINED_TABLE)).load().cache()
 combined_df.createOrReplaceTempView(COMBINED_TABLE)
 
-EPOCHS = 1
+EPOCHS = 3
 
 
 def minMaxScaler(pd_col):
@@ -666,7 +666,7 @@ def run_map(map_data):
     return outputs
 
 
-NUM_MAPS = 8
+NUM_MAPS = 4
 # You can't access the sparkContext from the workers so the data must be collected at the driver level
 for index, company_name in enumerate(company_list):
     if index % NUM_MAPS == 0 and index != 0 and len(companies_data) > 0:

@@ -1,18 +1,9 @@
-## How to run on Google DataProc
-1. Open the Google Cloud Shell
-2. Run this command:
-```
-gcloud dataproc jobs submit pyspark --cluster ${cluster_name} \
-    --jars gs://spark-lib/bigquery/spark-bigquery-latest.jar \
-    --region us-central1 \
-    gs://seng550/data_cleaning_code/find_missing_data_stats.py
-```
-
-## How to run on Google DataProc locally
+## How to run on Google DataProc manually
 1. Get the GCloud CLI
 2. Login into the GCloud CLI
 3. Create a cluster using the `./create_cluster.bash` script
 4. Run a job using the `./run_cluster.bash` script
+5. Delete the cluster using the `./delete_cluster.bash` script
 
 ## Statistics
 ### Fundamental: Percentage of Nulls
