@@ -108,7 +108,9 @@ def preprocess_data(training_data, test_data):
 
 def vectorize_data(training_data, test_data):
     # Assemble the vectors
-    input_columns = training_data.columns.remove(TARGET)
+    input_columns = training_data.columns
+    input_columns.remove(TARGET)
+    print("Using these features: {}".format(input_columns))
     vector_assembler = VectorAssembler(inputCols=input_columns, outputCol='features')
     train_df = vector_assembler.transform(training_data)
 
