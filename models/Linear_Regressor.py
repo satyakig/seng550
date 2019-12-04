@@ -108,7 +108,8 @@ def preprocess_data(training_data, test_data):
 
 def vectorize_data(training_data, test_data):
     # Assemble the vectors
-    vector_assembler = VectorAssembler(inputCols=training_data.columns, outputCol='features')
+    input_columns = training_data.columns.remove(TARGET)
+    vector_assembler = VectorAssembler(inputCols=input_columns, outputCol='features')
     train_df = vector_assembler.transform(training_data)
 
     # Normalize the data using Scalar
